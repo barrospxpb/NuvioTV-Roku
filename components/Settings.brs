@@ -1,0 +1,1267 @@
+function Set_Row(id as string, label as string, desc as string, value as string) as object
+    return { id: id, label: label, desc: desc, value: value, kind: "value" }
+end function
+
+function Set_Toggle(id as string, label as string, desc as string, on as boolean) as object
+    return { id: id, label: label, desc: desc, on: on, kind: "toggle" }
+end function
+
+function Set_Info(id as string, label as string, desc as string, value as string) as object
+    return { id: id, label: label, desc: desc, value: value, kind: "info" }
+end function
+
+function Set_Header(label as string) as object
+    return { id: "", label: label, desc: "", value: "", kind: "header" }
+end function
+
+function Set_LangName(code as string) as string
+    if code = "system" then return L("Del sistema")
+    if code = "original" then return "Original"
+    if code = "none" then return L("Ninguno")
+    if code = "off" or code = "" then return L("Desactivados")
+    return Lang_Name(code)
+end function
+
+function Set_AudioLangs() as object
+    return ["system", "original", "spa", "eng", "jpn", "por", "fre", "ita", "ger", "kor"]
+end function
+
+function Set_Audio2Langs() as object
+    return ["none", "spa", "eng", "original", "jpn", "por", "fre", "ita", "ger", "kor"]
+end function
+
+function Set_SubLangs() as object
+    return ["off", "spa", "eng", "por", "fre", "ita", "ger", "jpn"]
+end function
+
+function Set_Toggles() as object
+    return { forcedSubs: true, openSubs: true, autoNext: true, pauseOverlay: true, clock: true, reuseLink: true, bingeNext: true, bingeReuse: true, sizeBadges: true, addonLogo: true, fusionBadges: true, expandPoster: true, expandTrailer: true, expandMuted: true, trailerButton: true, trailerAutoplay: true, rokuSafe: true, skipIntro: true, autoSkipIntro: true, autoSkipRecap: true, autoSkipOutro: true, autoSkipCredits: true, preloadNext: true, bingeFallback: true, stillWatching: true, postPlay: true, parentalGuide: true, stripSdh: true, onlyPrefSubs: true, customSubs: true, subBold: true, playerStats: true, loadDetails: true, hideSpoilers: true, shuffleButton: true, audioSafe: true, stereoOnly: true, sourceFailover: true, ambientOn: true, heroFull: true, classicGradient: true, posterLabels: true, homeRatings: true, navModern: true, navBlur: true, navCollapsed: true }
+end function
+
+function Set_Minutes(v as integer) as string
+    if v = 1 then return L("1 minuto")
+    return L("{n} minutos").Replace("{n}", v.ToStr())
+end function
+
+function Set_Seconds(v as integer) as string
+    if v < 0 then return L("Sin límite")
+    if v = 0 then return L("Instantáneo")
+    return v.ToStr() + " s"
+end function
+
+function Set_Hours(v as integer) as string
+    if v >= 24 and v mod 24 = 0
+        days = Int(v / 24)
+        if days = 1 then return L("1 día")
+        return days.ToStr() + L(" días")
+    end if
+    return v.ToStr() + " h"
+end function
+
+function Set_Short(text as string, size as integer) as string
+    if Len(text) <= size then return text
+    return Left(text, size - 1) + "…"
+end function
+
+function Set_TmdbLangs() as object
+    return Lang_Catalog()
+end function
+
+function Set_TmdbName(code as string) as string
+    name = Lang_CatalogName(code)
+    if name = "" then return code
+    return name
+end function
+
+sub Set_OpenLangPicker(pref as string, title as string, extras as object)
+    current = Str_Of(St_Pref(pref))
+    if pref = "tmdbLanguage" and current = "" then current = Tmdb_DefaultLang()
+    items = []
+    focus = 0
+    for each e in extras
+        if LCase(e) = LCase(current) then focus = items.Count()
+        items.Push({ id: e, label: Set_LangName(e), checked: LCase(e) = LCase(current) })
+    end for
+    for each e in Lang_Catalog()
+        if LCase(e.code) = LCase(current) then focus = items.Count()
+        items.Push({ id: e.code, label: e.name + "  ·  " + UCase(e.code), checked: LCase(e.code) = LCase(current) })
+    end for
+    Sheet_Open({ title: title, items: items, focus: focus, style: "cards", width: 900 }, "langPick", { pref: pref })
+end sub
+
+function Set_Cycle(list as object, current as dynamic) as dynamic
+    idx = -1
+    for i = 0 to list.Count() - 1
+        if list[i] = current then idx = i
+    end for
+    return list[(idx + 1) mod list.Count()]
+end function
+
+function Set_Pref(prefs as object, defaults as object, name as string) as dynamic
+    if prefs[name] <> invalid then return prefs[name]
+    return defaults[name]
+end function
+
+function Err_Text(e as object) as string
+    text = Str_Of(e.message)
+    if text = "" then text = L("Error desconocido")
+    if e.number <> invalid then text = text + " (" + Str_Any(e.number) + ")"
+    if type(e.backtrace) = "roArray"
+        spots = []
+        first = e.backtrace.Count() - 4
+        if first < 0 then first = 0
+        for n = e.backtrace.Count() - 1 to first step -1
+            b = e.backtrace[n]
+            if type(b) = "roAssociativeArray"
+                file = Str_Of(b.filename)
+                cut = file.Split("/")
+                file = cut[cut.Count() - 1]
+                spots.Push(file + ":" + Str_Any(b.line_number) + " " + Str_Of(b.function))
+            end if
+        end for
+        if spots.Count() > 0 then text = text + chr(10) + spots.Join(chr(10))
+    end if
+    return text
+end function
+
+function Settings_Model() as object
+    integ = St_Integrations()
+    prefs = St_Prefs()
+    defaults = St_PlayerDefaults()
+    profile = St_ActiveProfile()
+    url = Net_ServerUrl()
+    host = L("No configurado")
+    if integ.nuvioUrl <> ""
+        re = CreateObject("roRegex", "^https?://([^/]+)", "i")
+        found = re.Match(integ.nuvioUrl)
+        if found.Count() > 1 then host = found[1]
+        if integ.nuvioUrl = Config_NuvioServer() then host = L("Oficial") + " (" + host + ")"
+    end if
+    logged = integ.nuvioAccess <> ""
+
+    account = { id: "account", label: L("Cuenta"), subtitle: L("Estado de la cuenta y sincronización"), rows: [] }
+    if logged
+        email = integ.nuvioEmail
+        if email = "" then email = L("Sesión iniciada")
+        account.rows.Push(Set_Info("nuvioUser", L("Cuenta de Nuvio"), L("Conectada."), email))
+        lastSync = integ.nuvioLastSync
+        if lastSync = "" then lastSync = L("Nunca")
+        account.rows.Push(Set_Row("nuvioSync", L("Sincronizar ahora"), L("Vuelve a traer perfiles, addons, biblioteca, progreso y ajustes."), lastSync))
+        account.rows.Push(Set_Row("nuvioLogout", L("Cerrar sesión"), L("Tus datos locales se conservan."), ""))
+    else
+        account.rows.Push(Set_Row("nuvioLogin", L("Iniciar sesión con QR"), L("Escanea el código con tu celular y aprueba el acceso a este Roku."), ""))
+        account.rows.Push(Set_Row("nuvioEmailHelp", L("Iniciar sesión con correo"), L("Se hace desde el celular, en la página de configuración."), ""))
+    end if
+    account.rows.Push(Set_Row("nuvioServer", L("Servidor de Nuvio"), L("Usa el servidor oficial. Desde el celular puedes cambiarlo por uno propio."), host))
+    account.rows.Push(Set_Row("phone", L("Configurar desde el celular"), L("Abre esta dirección en un celular conectado al mismo wifi."), url))
+
+    profilesSection = { id: "profiles", label: L("Perfiles"), subtitle: L("Administrar perfiles de usuario"), rows: [] }
+    for each p in St_Profiles()
+        value = ""
+        if p.id = profile.id then value = L("En uso")
+        profilesSection.rows.Push(Set_Row("profile:" + p.id, Str_Glyphs(Str_Of(p.name)), "", value))
+    end for
+    profilesSection.rows.Push(Set_Row("newProfile", L("Nuevo perfil"), "", ""))
+    profilesSection.rows.Push(Set_Row("profileColor", L("Color del perfil"), L("Fondo del círculo del perfil cuando no tiene foto, y color de la pantalla de perfiles."), St_ColorName(St_ProfileColor(St_ActiveProfileIndex()))))
+    profilesSection.rows.Push(Set_Toggle("shared", L("Addons compartidos"), L("Todos los perfiles usan la misma lista de addons."), St_Settings().shared))
+    profilesSection.rows.Push(Set_Toggle("rememberProfile", L("Recordar el último perfil"), L("Al abrir el canal entra directo al último perfil que usaste. Si el perfil tiene PIN, te lo pide."), Bool_Of(St_Settings().rememberProfile, false)))
+
+    party = { id: "party", label: "Watch Party", subtitle: L("Únete a tus amigos con un código de party"), rows: [] }
+    party.rows.Push(Set_Row("partyJoin", L("Unirse a una watch party"), L("Escribe el código de 6 caracteres que compartió tu amigo."), ""))
+    party.rows.Push(Set_Info("partyHost", L("Ser anfitrión"), L("Para crear una sala, ábrela desde el reproductor con el botón de Watch Party."), ""))
+    party.rows.Push(Set_Info("partyNote", L("Función experimental"), L("Las watch parties son experimentales y pueden no funcionar como se espera."), ""))
+
+    appearance = { id: "appearance", label: L("Apariencia"), subtitle: L("Elige tu tema de color e idioma"), rows: [] }
+    appearance.rows.Push(Set_Row("accent", L("Color de acento"), L("Se usa en el foco, barras de progreso y botones. Elige uno o crea el tuyo."), St_ColorName(prefs.accent)))
+    langs = Ui_LangNames()
+    uiLang = Str_Of(St_Settings()["uiLang"])
+    if not langs.DoesExist(uiLang) then uiLang = "auto"
+    appearance.rows.Push(Set_Row("uiLang", L("Idioma de la interfaz"), L("El idioma del canal. Automático usa el idioma de tu Roku."), langs[uiLang]))
+
+    appearance.rows.Push(Set_Header(L("Modo ambiente")))
+    ambientOn = Bool_Of(Set_Pref(prefs, defaults, "ambientOn"), false)
+    appearance.rows.Push(Set_Toggle("ambientOn", L("Modo ambiente"), L("Si no tocas el control por un rato, muestra fondos de tus catálogos en pantalla completa. Cualquier botón lo cierra."), ambientOn))
+    if ambientOn then appearance.rows.Push(Set_Row("ambientMinutes", L("Empezar después de"), L("El protector de pantalla de tu Roku puede aparecer antes si su tiempo es menor."), Set_Minutes(ToInt(Set_Pref(prefs, defaults, "ambientMinutes"), 5))))
+
+    layout = { id: "layout", label: L("Diseño"), subtitle: L("Estructura de inicio y estilos de pósteres"), rows: [] }
+    layout.rows.Push(Set_Header(L("Inicio")))
+    modes = { modern: L("Moderno"), classic: L("Clásico"), grid: L("Cuadrícula") }
+    mode = Home_Mode()
+    layout.rows.Push(Set_Row("homeLayout", L("Estilo del inicio"), L("Moderno deja la portada fija con una fila activa. Clásico recorre las filas hacia abajo. Cuadrícula muestra cada catálogo en varias filas con Ver todo al final."), modes[mode]))
+    if mode = "modern"
+        layout.rows.Push(Set_Toggle("heroFull", L("Fondo de la portada a pantalla completa"), L("El fondo de la portada llena toda la pantalla."), Bool_Of(Set_Pref(prefs, defaults, "heroFull"), false)))
+    else
+        heroOn = Bool_Of(Set_Pref(prefs, defaults, "heroSection"), true)
+        layout.rows.Push(Set_Toggle("heroSection", L("Mostrar la portada"), L("Muestra arriba del inicio una portada que cambia sola entre títulos de tus catálogos."), heroOn))
+        if heroOn
+            chosen = St_Pref("heroCatalogs")
+            count = 0
+            if type(chosen) = "roArray" then count = chosen.Count()
+            value = L("Automático")
+            if count > 0 then value = count.ToStr()
+            layout.rows.Push(Set_Row("heroCatalogs", L("Catálogos de la portada"), L("Elige uno o más catálogos para la portada."), value))
+        end if
+        if mode = "classic" then layout.rows.Push(Set_Toggle("classicGradient", L("Degradado del título enfocado"), L("Muestra el fondo del título enfocado del lado derecho del inicio Clásico."), Bool_Of(Set_Pref(prefs, defaults, "classicGradient"), false)))
+    end if
+    layout.rows.Push(Set_Toggle("posterLabels", L("Nombres debajo de los pósteres"), L("Muestra el título debajo de los pósteres en las filas, la cuadrícula y Ver todo."), Bool_Of(Set_Pref(prefs, defaults, "posterLabels"), false)))
+    layout.rows.Push(Set_Toggle("hideUnreleased", L("Ocultar lo que no se ha estrenado"), L("Oculta películas y series que todavía no se estrenan."), Bool_Of(Set_Pref(prefs, defaults, "hideUnreleased"), false)))
+    layout.rows.Push(Set_Toggle("homeRatings", L("Calificaciones generales"), L("Muestra la calificación de IMDb en la portada del inicio. Las de MDBList siguen su propio ajuste."), Bool_Of(Set_Pref(prefs, defaults, "homeRatings"), true)))
+    layout.rows.Push(Set_Toggle("cw", L("Seguir viendo"), L("Muestra la fila de lo que estás viendo."), prefs.continueWatching))
+    style = L("Horizontal")
+    if Set_Pref(prefs, defaults, "cwStyle") = "poster" then style = L("Póster")
+    layout.rows.Push(Set_Row("cwStyle", L("Estilo de Seguir viendo"), L("Horizontal muestra una imagen del episodio o película."), style))
+    if prefs.continueWatching
+        openNames = { play: L("Abrir fuente"), details: L("Abrir detalles"), upcoming: L("Detalles solo para próximos") }
+        openMode = Str_Of(Set_Pref(prefs, defaults, "cwOpen"))
+        if not openNames.DoesExist(openMode) then openMode = "play"
+        layout.rows.Push(Set_Row("cwOpen", L("Al seleccionar"), L("Qué se abre al elegir algo de Seguir viendo."), openNames[openMode]))
+        sortNames = { default: L("Predeterminado"), streaming: L("Estilo streaming"), split: L("Fila aparte de próximos") }
+        sortMode = Str_Of(Set_Pref(prefs, defaults, "cwSort"))
+        if not sortNames.DoesExist(sortMode) then sortMode = "default"
+        layout.rows.Push(Set_Row("cwSort", L("Orden de Seguir viendo"), L("Predeterminado ordena todo por lo más reciente. Estilo streaming pone primero lo estrenado y al final lo que viene. Fila aparte mueve los próximos episodios a una fila Próximamente."), sortNames[sortMode]))
+        layout.rows.Push(Set_Toggle("cwThumbs", L("Miniaturas de episodios"), L("Usa la imagen del episodio en Seguir viendo. Si lo apagas, usa el fondo de la serie."), Bool_Of(Set_Pref(prefs, defaults, "cwThumbs"), true)))
+        layout.rows.Push(Set_Toggle("cwBlur", L("Difuminar lo no visto en Seguir viendo"), L("Difumina la imagen de los siguientes episodios que no has visto para evitar spoilers."), Bool_Of(Set_Pref(prefs, defaults, "cwBlur"), false)))
+        layout.rows.Push(Set_Toggle("cwFurthest", L("Siguiente desde el episodio más avanzado"), L("El siguiente episodio se calcula desde el más avanzado que viste. Apágalo si estás volviendo a ver una serie, para usar el último que viste."), Bool_Of(Set_Pref(prefs, defaults, "cwFurthest"), true)))
+        layout.rows.Push(Set_Toggle("cwUnaired", L("Mostrar próximos episodios sin estrenar"), L("Incluye en Seguir viendo los siguientes episodios antes de que se estrenen."), Bool_Of(Set_Pref(prefs, defaults, "cwUnaired"), true)))
+    end if
+    discNames = { search: L("En Buscar"), sidebar: L("En la barra lateral"), off: L("Desactivado") }
+    discLoc = Str_Of(Set_Pref(prefs, defaults, "discoverLocation"))
+    if not discNames.DoesExist(discLoc) then discLoc = "search"
+    layout.rows.Push(Set_Row("discoverLocation", L("Ubicación de Descubrir"), L("Descubrir sirve para explorar los catálogos de tus addons por tipo y género."), discNames[discLoc]))
+    layout.rows.Push(Set_Row("rowSize", L("Títulos por fila"), L("Menos títulos hace que el inicio cargue más rápido."), prefs.rowSize.ToStr()))
+    layout.rows.Push(Set_Header(L("Barra lateral")))
+    navModern = Bool_Of(Set_Pref(prefs, defaults, "navModern"), false)
+    navCollapsed = Bool_Of(Set_Pref(prefs, defaults, "navCollapsed"), false)
+    layout.rows.Push(Set_Toggle("navModern", L("Barra lateral moderna"), L("Una barra flotante que se abre al ir a la izquierda, con una pastilla arriba que dice dónde estás."), navModern))
+    if navModern
+        layout.rows.Push(Set_Toggle("navBlur", L("Fondo translúcido de la barra"), L("Roku no puede desenfocar, así que la barra y la pastilla se ven semitransparentes."), Bool_Of(Set_Pref(prefs, defaults, "navBlur"), false)))
+        layout.rows.Push(Set_Toggle("navCollapsed", L("Ocultar la pastilla flotante"), L("Quita el indicador flotante de arriba a la izquierda."), navCollapsed))
+    else
+        layout.rows.Push(Set_Toggle("navCollapsed", L("Contraer la barra lateral"), L("La barra se oculta y aparece al ir a la izquierda."), navCollapsed))
+    end if
+    layout.rows.Push(Set_Header(L("Póster enfocado")))
+    layout.rows.Push(Set_Toggle("expandPoster", L("Expandir póster enfocado"), L("Después de unos segundos el póster se convierte en una vista horizontal."), Bool_Of(Set_Pref(prefs, defaults, "expandPoster"), true)))
+    layout.rows.Push(Set_Row("expandDelay", L("Espera para expandir"), "", Set_Seconds(ToInt(Set_Pref(prefs, defaults, "expandDelay"), 3))))
+    layout.rows.Push(Set_Toggle("expandTrailer", L("Tráiler del póster enfocado"), L("Reproduce el tráiler después de unos segundos en un póster."), Bool_Of(Set_Pref(prefs, defaults, "expandTrailer"), false)))
+    target = L("Portada")
+    if Set_Pref(prefs, defaults, "trailerTarget") = "card" then target = L("Tarjeta expandida")
+    layout.rows.Push(Set_Row("trailerTarget", L("Dónde se reproduce el tráiler"), L("Portada usa la imagen grande de arriba, como Nuvio."), target))
+    layout.rows.Push(Set_Toggle("expandMuted", L("Tráiler del póster sin sonido"), "", Bool_Of(Set_Pref(prefs, defaults, "expandMuted"), true)))
+    poster = Str_Of(Set_Pref(prefs, defaults, "customPoster"))
+    posterValue = L("Sin patrón")
+    if poster <> "" then posterValue = L("Activo")
+    layout.rows.Push(Set_Row("customPoster", L("Póster personalizado"), L("Patrón de URL de un servicio de pósters, como RPDB. Mejor pégalo desde el celular."), posterValue))
+
+
+    content = { id: "content", label: L("Contenido y descubrimiento"), subtitle: L("Addons, catálogos y colecciones"), rows: [] }
+    content.rows.Push(Set_Row("addons", "Addons", L("Agrega, ordena o elimina addons."), St_Addons().Count().ToStr()))
+    content.rows.Push(Set_Row("catalogs", L("Catálogos"), L("Muestra, oculta y reordena las filas del inicio."), m.catalogs.Count().ToStr()))
+    content.rows.Push(Set_Row("collection", L("Importar colección"), L("Dirección de un .json con una lista de addons."), ""))
+    content.rows.Push(Set_Row("reload", L("Recargar catálogos"), "", ""))
+    cols = St_ReadFile("collections_" + profile.id)
+    content.rows.Push(Set_Header(L("Colecciones")))
+    if type(cols) = "roArray" and cols.Count() > 0
+        hiddenRows = prefs.hidden
+        for each col in cols
+            if type(col) = "roAssociativeArray"
+                count = 0
+                if type(col.folders) = "roArray" then count = col.folders.Count()
+                desc = count.ToStr() + L(" carpetas")
+                if count = 1 then desc = L("1 carpeta")
+                content.rows.Push(Set_Toggle("col:" + Str_Of(col.id), Str_Glyphs(Str_Of(col.title)).Trim(), desc, not hiddenRows.DoesExist("col:" + Str_Of(col.id))))
+            end if
+        end for
+    else
+        content.rows.Push(Set_Info("noCollections", L("Sin colecciones"), L("Las colecciones se traen de tu cuenta de Nuvio al sincronizar."), ""))
+    end if
+
+    integration = { id: "integration", label: L("Integraciones"), subtitle: L("Administrar integraciones disponibles"), rows: [] }
+    integration.rows.Push(Set_Header("TMDB"))
+    tmdbKey = L("Falta")
+    if integ.tmdbKey <> "" then tmdbKey = L("Configurada")
+    integration.rows.Push(Set_Toggle("tmdbEnabled", L("Usar TMDB"), L("Títulos, sinopsis, logos, fondos y episodios en tu idioma."), integ.tmdbEnabled))
+    integration.rows.Push(Set_Row("tmdbKey", L("Clave de TMDB"), L("Escríbela aquí o pégala desde el celular. Es gratis en themoviedb.org."), tmdbKey))
+    tmdbLang = Str_Of(Set_Pref(prefs, defaults, "tmdbLanguage"))
+    if tmdbLang = "" then tmdbLang = Tmdb_DefaultLang()
+    langName = Set_TmdbName(tmdbLang)
+    integration.rows.Push(Set_Row("tmdbLanguage", L("Idioma de la metadata"), L("Para este perfil."), langName))
+    integration.rows.Push(Set_Toggle("tmdbArtwork", L("Imágenes de TMDB"), L("Usa logos y fondos de TMDB."), integ.tmdbArtwork))
+    integration.rows.Push(Set_Header("MDBList"))
+    mdbKey = L("Falta")
+    if integ.mdbKey <> "" then mdbKey = L("Configurada")
+    integration.rows.Push(Set_Toggle("mdbEnabled", L("Calificaciones de MDBList"), L("Muestra calificaciones de varias fuentes en la portada y la ficha."), integ.mdbEnabled))
+    mdbAccount = L("Conectar")
+    if (Str_Of(integ.mdbRefresh) <> "" or Str_Of(integ.mdbAccess) <> "")
+        mdbAccount = Str_Of(integ.mdbUser)
+        if mdbAccount = "" then mdbAccount = L("Conectada")
+    end if
+    mdbDesc = L("Escríbela aquí o pégala desde el celular. Es gratis en mdblist.com.")
+    if Str_Of(integ.mdbDiag) <> "" then mdbDesc = mdbDesc + chr(10) + L("Última revisión en tu cuenta: ") + integ.mdbDiag
+    integration.rows.Push(Set_Row("mdbKey", L("Clave de MDBList"), mdbDesc, mdbKey))
+    names = { imdb: "IMDb", tomatoes: "Rotten Tomatoes", audience: L("Audiencia (RT)"), metacritic: "Metacritic", letterboxd: "Letterboxd", tmdb: "TMDB", trakt: "Trakt" }
+    for each k in ["imdb", "tomatoes", "audience", "metacritic", "letterboxd", "tmdb", "trakt"]
+        integration.rows.Push(Set_Toggle("mdb:" + k, L("Mostrar ") + names[k], "", Bool_Of(integ.mdbShow[k], false)))
+    end for
+
+    playback = { id: "playback", label: L("Reproducción"), subtitle: L("Reproductor, subtítulos y auto-reproducción"), rows: [] }
+    playback.rows.Push(Set_Header(L("General")))
+    playback.rows.Push(Set_Toggle("pauseOverlay", L("Pantalla de pausa"), L("Aparece después de unos segundos en pausa."), Bool_Of(Set_Pref(prefs, defaults, "pauseOverlay"), true)))
+    playback.rows.Push(Set_Toggle("clock", L("Reloj en el reproductor"), "", Bool_Of(Set_Pref(prefs, defaults, "clock"), true)))
+    playback.rows.Push(Set_Toggle("rokuSafe", L("Priorizar fuentes compatibles con Roku"), L("La reproducción automática nunca elige fuentes que tu Roku no puede reproducir (HEVC, 4K o Dolby Vision según tu modelo y tu tele) y deja al final los REMUX con audio TrueHD o DTS-HD."), Bool_Of(Set_Pref(prefs, defaults, "rokuSafe"), true)))
+    playback.rows.Push(Set_Header(L("Audio de tu Roku")))
+    playback.rows.Push(Set_Info("audioCaps", L("Lo que tu Roku puede reproducir"), Device_AudioSummary(), ""))
+    playback.rows.Push(Set_Toggle("audioSafe", L("Saltar audio que tu Roku no reproduce"), L("La reproducción automática y el cambio de fuente saltan las fuentes con audio de la lista No, como DTS o TrueHD."), Bool_Of(Set_Pref(prefs, defaults, "audioSafe"), true)))
+    playback.rows.Push(Set_Toggle("stereoOnly", L("Solo audio estéreo (2.0)"), L("Para Roku o TV sin sonido envolvente: salta las fuentes marcadas como 5.1, 7.1, Atmos, Dolby o DTS, salvo que también digan 2.0 o estéreo."), Bool_Of(Set_Pref(prefs, defaults, "stereoOnly"), false)))
+    playback.rows.Push(Set_Toggle("parentalGuide", L("Avisos de contenido"), L("Al empezar muestra si tiene violencia, desnudez, lenguaje soez, drogas o terror."), Bool_Of(Set_Pref(prefs, defaults, "parentalGuide"), true)))
+    playback.rows.Push(Set_Header(L("Pantalla de carga")))
+    playback.rows.Push(Set_Toggle("loadDetails", L("Mostrar lo que está pasando"), L("Debajo del logo dice si está buscando o eligiendo fuente, revisando el enlace, cargando o probando otra forma de abrirlo. Apágalo para ver solo el fondo y el logo."), Bool_Of(Set_Pref(prefs, defaults, "loadDetails"), true)))
+    playback.rows.Push(Set_Header(L("Saltar segmentos")))
+    playback.rows.Push(Set_Toggle("skipIntro", L("Botón para saltar"), L("Usa introdb.app y AniSkip para encontrar intros, resúmenes y créditos."), Bool_Of(Set_Pref(prefs, defaults, "skipIntro"), true)))
+    playback.rows.Push(Set_Toggle("autoSkipIntro", L("Saltar intros automáticamente"), L("También las aperturas de anime."), Bool_Of(Set_Pref(prefs, defaults, "autoSkipIntro"), false)))
+    playback.rows.Push(Set_Toggle("autoSkipRecap", L("Saltar resúmenes automáticamente"), "", Bool_Of(Set_Pref(prefs, defaults, "autoSkipRecap"), false)))
+    playback.rows.Push(Set_Toggle("autoSkipOutro", L("Saltar créditos de episodios automáticamente"), L("También los finales de anime."), Bool_Of(Set_Pref(prefs, defaults, "autoSkipOutro"), false)))
+    playback.rows.Push(Set_Toggle("autoSkipCredits", L("Saltar créditos de películas automáticamente"), L("Conserva las escenas post-créditos."), Bool_Of(Set_Pref(prefs, defaults, "autoSkipCredits"), false)))
+    playback.rows.Push(Set_Header(L("Siguiente episodio")))
+    playback.rows.Push(Set_Toggle("autoNext", L("Siguiente episodio automático"), L("Cuando aparece el aviso, empieza el siguiente episodio después de unos segundos."), Bool_Of(Set_Pref(prefs, defaults, "autoNext"), true)))
+    nextMode = Str_Of(Set_Pref(prefs, defaults, "nextMode"))
+    modeText = L("Porcentaje")
+    if nextMode = "min" then modeText = L("Minutos antes del final")
+    playback.rows.Push(Set_Row("nextMode", L("Cuándo avisar"), L("Si se conocen los créditos del episodio, el aviso sale al empezar los créditos."), modeText))
+    if nextMode = "min"
+        playback.rows.Push(Set_Row("nextMin", L("Minutos antes del final"), "", ToInt(Set_Pref(prefs, defaults, "nextMin"), 2).ToStr() + " min"))
+    else
+        playback.rows.Push(Set_Row("nextPct", L("Porcentaje del episodio"), "", ToInt(Set_Pref(prefs, defaults, "nextPct"), 99).ToStr() + " %"))
+    end if
+    playback.rows.Push(Set_Toggle("preloadNext", L("Buscar fuentes antes"), L("Busca las fuentes del siguiente episodio un minuto antes del aviso."), Bool_Of(Set_Pref(prefs, defaults, "preloadNext"), false)))
+    playback.rows.Push(Set_Toggle("bingeFallback", L("Si no está la misma fuente, usar otra"), L("Si el siguiente episodio no tiene la misma fuente, elige la primera disponible. Si lo apagas, te muestra la lista."), Bool_Of(Set_Pref(prefs, defaults, "bingeFallback"), true)))
+    playback.rows.Push(Set_Toggle("stillWatching", L("¿Sigues viendo?"), L("Pregunta después de varios episodios seguidos sin tocar el control."), Bool_Of(Set_Pref(prefs, defaults, "stillWatching"), true)))
+    playback.rows.Push(Set_Row("stillCount", L("Episodios antes de preguntar"), "", ToInt(Set_Pref(prefs, defaults, "stillCount"), 3).ToStr()))
+    playback.rows.Push(Set_Header(L("Al terminar")))
+    playback.rows.Push(Set_Toggle("postPlay", L("Recomendaciones al terminar"), L("Cerca del final de una película o del último episodio muestra títulos parecidos. Necesita TMDB."), Bool_Of(Set_Pref(prefs, defaults, "postPlay"), true)))
+    playback.rows.Push(Set_Row("postPct", L("Cuándo mostrarlas"), L("Si se conocen los créditos de la película, salen al empezar los créditos."), ToInt(Set_Pref(prefs, defaults, "postPct"), 96).ToStr() + " %"))
+    playback.rows.Push(Set_Header("Audio"))
+    playback.rows.Push(Set_Row("audioLang", L("Idioma de audio preferido"), L("Se elige solo si la fuente tiene varias pistas. Original necesita TMDB."), Set_LangName(Str_Of(Set_Pref(prefs, defaults, "audioLang")))))
+    playback.rows.Push(Set_Row("audioLang2", L("Idioma de audio secundario"), L("Se usa si la fuente no tiene el preferido."), Set_LangName(Str_Of(Set_Pref(prefs, defaults, "audioLang2")))))
+    playback.rows.Push(Set_Header(L("Subtítulos")))
+    playback.rows.Push(Set_Row("subLang", L("Subtítulos preferidos"), L("Se activan solos cuando hay subtítulos en ese idioma."), Set_LangName(Str_Of(Set_Pref(prefs, defaults, "subLang")))))
+    playback.rows.Push(Set_Row("subLang2", L("Subtítulos secundarios"), L("Se usan si no hay subtítulos en el idioma preferido."), Set_LangName(Str_Of(Set_Pref(prefs, defaults, "subLang2")))))
+    playback.rows.Push(Set_Toggle("forcedSubs", L("Subtítulos forzados"), L("Si el audio está en el idioma de unos subtítulos forzados, los activa."), Bool_Of(Set_Pref(prefs, defaults, "forcedSubs"), false)))
+    playback.rows.Push(Set_Toggle("openSubs", L("Subtítulos de OpenSubtitles"), L("Busca subtítulos aunque no tengas un addon de subtítulos."), Bool_Of(Set_Pref(prefs, defaults, "openSubs"), true)))
+    playback.rows.Push(Set_Toggle("stripSdh", L("Quitar subtítulos SDH"), L("Oculta los subtítulos para sordos (SDH o CC)."), Bool_Of(Set_Pref(prefs, defaults, "stripSdh"), false)))
+    playback.rows.Push(Set_Toggle("onlyPrefSubs", L("Solo idiomas preferidos"), L("En la lista de subtítulos solo aparecen tus idiomas preferido y secundario."), Bool_Of(Set_Pref(prefs, defaults, "onlyPrefSubs"), false)))
+    playback.rows.Push(Set_Header(L("Estilo de subtítulos")))
+    playback.rows.Push(Set_Toggle("customSubs", L("Usar este estilo"), L("Se aplica a los subtítulos de addons. Los que vienen dentro del video usan el estilo del Roku: Ajustes → Accesibilidad → Estilo de subtítulos."), Bool_Of(Set_Pref(prefs, defaults, "customSubs"), true)))
+    sizeNames = { small: L("Pequeño"), normal: L("Normal"), large: L("Grande"), xlarge: L("Muy grande") }
+    colorNames = { white: L("Blanco"), yellow: L("Amarillo"), cyan: L("Cian"), green: L("Verde"), gray: L("Gris") }
+    bgNames = { none: L("Sin fondo"), soft: L("Semitransparente"), solid: L("Negro") }
+    edgeNames = { shadow: L("Sombra"), none: L("Ninguno") }
+    playback.rows.Push(Set_Row("subSize", L("Tamaño"), "", Str_Of(sizeNames[Str_Of(Set_Pref(prefs, defaults, "subSize"))])))
+    playback.rows.Push(Set_Row("subColor", L("Color del texto"), "", Str_Of(colorNames[Str_Of(Set_Pref(prefs, defaults, "subColor"))])))
+    playback.rows.Push(Set_Row("subBg", L("Fondo"), "", Str_Of(bgNames[Str_Of(Set_Pref(prefs, defaults, "subBg"))])))
+    playback.rows.Push(Set_Row("subEdge", L("Borde"), "", Str_Of(edgeNames[Str_Of(Set_Pref(prefs, defaults, "subEdge"))])))
+    playback.rows.Push(Set_Toggle("subBold", L("Negritas"), "", Bool_Of(Set_Pref(prefs, defaults, "subBold"), false)))
+    playback.rows.Push(Set_Row("subOffset", L("Altura"), L("Sube los subtítulos desde la parte de abajo."), ToInt(Set_Pref(prefs, defaults, "subOffset"), 0).ToStr()))
+
+    sources = playback
+    sources.rows.Push(Set_Header(L("Reproducción automática")))
+    modes = { manual: L("Manual"), first: L("Primera fuente"), regex: L("Coincidencia regex") }
+    mode = Str_Of(Set_Pref(prefs, defaults, "autoplayMode"))
+    if not modes.DoesExist(mode) then mode = "manual"
+    sources.rows.Push(Set_Row("autoplayMode", L("Selección automática"), L("Manual siempre muestra la lista de fuentes."), modes[mode]))
+    regex = Str_Of(Set_Pref(prefs, defaults, "autoplayRegex"))
+    regexValue = L("Sin patrón")
+    if regex <> "" then regexValue = Set_Short(regex, 26)
+    sources.rows.Push(Set_Row("autoplayRegex", L("Patrón regex"), L("Se compara con el addon, nombre, título, descripción y URL de cada fuente."), regexValue))
+    presetName = L("Elegir")
+    for each p in Autoplay_Presets()
+        if p.p = regex then presetName = p.name
+    end for
+    sources.rows.Push(Set_Row("regexPreset", L("Preajustes de regex"), L("Cada vez que lo eliges cambia al siguiente."), presetName))
+    sources.rows.Push(Set_Row("autoplayTimeout", L("Tiempo de espera"), L("Cuánto esperar a los addons antes de elegir."), Set_Seconds(ToInt(Set_Pref(prefs, defaults, "autoplayTimeout"), 3))))
+    allowed = Set_Pref(prefs, defaults, "autoplayAddons")
+    allowedText = L("Todos")
+    if type(allowed) = "roArray" and allowed.Count() > 0 then allowedText = Set_Short(allowed.Join(", "), 26)
+    sources.rows.Push(Set_Info("autoplayAddons", L("Addons permitidos"), L("Se toma de tu cuenta de Nuvio."), allowedText))
+    sources.rows.Push(Set_Toggle("reuseLink", L("Reusar último enlace"), L("Reproduce directo el último enlace que funcionó para ese título."), Bool_Of(Set_Pref(prefs, defaults, "reuseLink"), false)))
+    sources.rows.Push(Set_Row("reuseHours", L("Guardar el enlace por"), "", Set_Hours(ToInt(Set_Pref(prefs, defaults, "reuseHours"), 24))))
+    sources.rows.Push(Set_Toggle("bingeNext", L("Misma fuente en el siguiente episodio"), L("Prefiere el mismo addon y calidad que el episodio anterior."), Bool_Of(Set_Pref(prefs, defaults, "bingeNext"), true)))
+    sources.rows.Push(Set_Toggle("bingeReuse", L("Recordar la fuente de cada serie"), L("También al volver desde Seguir viendo o la ficha."), Bool_Of(Set_Pref(prefs, defaults, "bingeReuse"), false)))
+    sources.rows.Push(Set_Header(L("Si una fuente falla")))
+    failover = Bool_Of(Set_Pref(prefs, defaults, "sourceFailover"), false)
+    sources.rows.Push(Set_Toggle("sourceFailover", L("Probar otra fuente"), L("Si la fuente no abre, el canal elige otra compatible de los resultados, sin repetir las que ya fallaron, mientras sigue la pantalla de carga."), failover))
+    if failover then sources.rows.Push(Set_Row("failoverCount", L("Fuentes que puede probar"), L("Después de esas, te muestra la lista para que elijas tú."), ToInt(Set_Pref(prefs, defaults, "failoverCount"), 2).ToStr()))
+    fusion = { id: "fusion", label: L("Estilo Fusion"), subtitle: L("Badges de calidad, HDR, códec, audio y tamaño en las fuentes"), rows: [] }
+    sources = fusion
+    sources.rows.Push(Set_Toggle("sizeBadges", L("Badges de tamaño"), "", Bool_Of(Set_Pref(prefs, defaults, "sizeBadges"), true)))
+    sources.rows.Push(Set_Toggle("addonLogo", L("Logo del addon"), "", Bool_Of(Set_Pref(prefs, defaults, "addonLogo"), true)))
+    place = L("Abajo")
+    if Set_Pref(prefs, defaults, "badgePlace") = "top" then place = L("Arriba")
+    sources.rows.Push(Set_Row("badgePlace", L("Posición de los badges"), "", place))
+    rulesCount = St_Badges(St_ActiveProfile().id).Count()
+    fusionDesc = L("No tienes reglas importadas. Se traen de tu cuenta de Nuvio o desde el celular.")
+    if rulesCount > 0 then fusionDesc = rulesCount.ToStr() + L(" reglas importadas.")
+    sources.rows.Push(Set_Toggle("fusionBadges", L("Badges Fusion"), fusionDesc, Bool_Of(Set_Pref(prefs, defaults, "fusionBadges"), true)))
+
+    trailers = layout
+    trailers.rows.Push(Set_Header(L("Ficha de series")))
+    trailers.rows.Push(Set_Toggle("hideSpoilers", L("Ocultar spoilers"), L("En los episodios que no has visto, la imagen se ve borrosa y no se muestra la descripción."), Bool_Of(Set_Pref(prefs, defaults, "hideSpoilers"), false)))
+    trailers.rows.Push(Set_Toggle("shuffleButton", L("Botón Aleatorio"), L("Aparece en la ficha de las series y reproduce un episodio al azar."), Bool_Of(Set_Pref(prefs, defaults, "shuffleButton"), true)))
+    trailers.rows.Push(Set_Header(L("Tráilers")))
+    trailers.rows.Push(Set_Toggle("trailerButton", L("Botón de tráiler"), L("Aparece en la ficha cuando hay tráiler."), Bool_Of(Set_Pref(prefs, defaults, "trailerButton"), true)))
+    trailers.rows.Push(Set_Toggle("trailerAutoplay", L("Reproducir tráiler en la ficha"), L("Empieza solo después de unos segundos en la ficha."), Bool_Of(Set_Pref(prefs, defaults, "trailerAutoplay"), false)))
+    trailers.rows.Push(Set_Row("trailerDelay", L("Espera del tráiler"), "", Set_Seconds(ToInt(Set_Pref(prefs, defaults, "trailerDelay"), 7))))
+
+    tracking = { id: "tracking", label: L("Seguimiento"), subtitle: L("Conecta proveedores de seguimiento para registrar lo que ves"), rows: [] }
+    traktValue = L("Conectar")
+    if integ.traktToken <> ""
+        traktValue = integ.traktUser
+        if traktValue = "" then traktValue = L("Conectado")
+    end if
+    tracking.rows.Push(Set_Row("trakt", "Trakt", L("Vincula tu cuenta de Trakt con un código."), traktValue))
+    simklValue = L("Conectar")
+    if integ.simklToken <> ""
+        simklValue = integ.simklUser
+        if simklValue = "" then simklValue = L("Conectado")
+    end if
+    tracking.rows.Push(Set_Row("simkl", "Simkl", L("Vincula tu cuenta de Simkl con un código."), simklValue))
+    accDesc = L("Conecta tu cuenta con un código QR, como en Nuvio. Con la cuenta no hace falta la clave.")
+    if Str_Of(integ.mdbLast) <> "" then accDesc = accDesc + chr(10) + L("Última respuesta de MDBList: ") + integ.mdbLast
+    tracking.rows.Push(Set_Row("mdbAccount", "MDBList", accDesc, mdbAccount))
+    tracking.rows.Push(Set_Toggle("scrobble", L("Registrar lo que veo"), L("Envía inicio, pausa y fin de cada título."), integ.scrobble))
+    tracking.rows.Push(Set_Header(L("Fuentes")))
+    tracking.rows.Push(Set_Row("cwSource", L("Seguir viendo desde"), L("De dónde sale la fila Seguir viendo. Trakt, MDBList y Simkl aparecen cuando conectas su cuenta."), Track_SourceName(Track_Pick(integ, "cw"))))
+    tracking.rows.Push(Set_Row("libSource", L("Biblioteca desde"), L("De dónde salen las listas de la biblioteca. Con Trakt o MDBList, agregar a Mi lista guarda en su watchlist."), Track_SourceName(Track_Pick(integ, "lib"))))
+    tracking.rows.Push(Set_Row("rateSource", L("Calificaciones"), L("Dónde se guardan y de dónde se muestran tus calificaciones. Califica desde la ficha de cada título."), Rate_Name(Rate_Source(integ))))
+    moreNames = { tmdb: "TMDB", trakt: "Trakt", simkl: "Simkl" }
+    moreName = moreNames[Str_Of(St_Pref("moreSource"))]
+    if moreName = invalid then moreName = "TMDB"
+    tracking.rows.Push(Set_Row("moreSource", L("Fuente de Más como esto"), L("De dónde salen las recomendaciones en la ficha y al terminar de ver algo."), moreName))
+    tracking.rows.Push(Set_Toggle("traktComments", L("Comentarios de Trakt"), L("Muestra comentarios de Trakt en la ficha."), Bool_Of(integ.traktComments, true)))
+    tracking.rows.Push(Set_Toggle("traktTranslate", L("Traducir comentarios"), L("Traduce al idioma del canal los comentarios que están en otro idioma."), Bool_Of(integ.traktTranslate, true)))
+
+    advanced = { id: "advanced", label: L("Avanzado"), subtitle: L("Rendimiento, navegación, caché y diagnósticos"), rows: [] }
+    cornerNames = { auto: L("Automático"), full: L("Normal"), hd: L("Pantalla HD"), off: L("Tapar esquinas") }
+    corner = Str_Of(St_Settings()["corners"])
+    if not cornerNames.DoesExist(corner) then corner = "auto"
+    advanced.rows.Push(Set_Row("corners", L("Esquinas redondeadas"), L("Si los pósters o las fotos se ven redondeados solo de un lado, prueba otra opción y vuelve a abrir el canal."), cornerNames[corner]))
+    advanced.rows.Push(Set_Toggle("playerStats", L("Datos técnicos en el reproductor"), L("Muestra resolución, códec, audio y bitrate mientras ves algo."), Bool_Of(Set_Pref(prefs, defaults, "playerStats"), false)))
+    advanced.rows.Push(Set_Row("clearHistory", L("Borrar historial de Seguir viendo"), L("Solo de este perfil."), ""))
+    advanced.rows.Push(Set_Row("phone", L("Configurar desde el celular"), "", url))
+
+    about = { id: "about", label: L("Acerca de"), subtitle: L("Información de la app, actualizaciones y enlaces legales"), rows: [] }
+    about.rows.Push({ id: "", kind: "logo", label: L("Versión ") + App_Version(), desc: L("Fork no oficial de Nuvio para Roku") })
+    about.rows.Push(Set_Info("version", L("Nuvio TV para Roku"), L("Fork no oficial de Nuvio para Roku"), App_Version()))
+    about.rows.Push(Set_Info("license", L("Licencia"), L("Basado en Nuvio, licencia GPL-3.0."), "GPL-3.0"))
+    dev = CreateObject("roDeviceInfo")
+    props = dev.GetDisplayProperties()
+    hdr = false
+    if type(props) = "roAssociativeArray" then hdr = Bool_Of(props.Hdr10, false)
+    yes = L("Sí")
+    no = L("No")
+    about.rows.Push(Set_Info("device", L("Tu Roku"), Str_Of(dev.GetModelDisplayName()) + " (" + Str_Of(dev.GetModel()) + ")  ·  " + L("Modo de video: ") + Str_Of(dev.GetVideoMode()), ""))
+    gifDiag = L("No")
+    if m.top.findNode("gifArt") <> invalid then gifDiag = L("Sí")
+    gifDiag = gifDiag + "  ·  " + m.top.subtype()
+    if Str_Of(m.gifLastState) <> "" then gifDiag = gifDiag + "  ·  " + m.gifLastState
+    about.rows.Push(Set_Info("gifDiag", L("Imágenes animadas (GIF)"), gifDiag, ""))
+    formats = "HEVC: " + Set_YesNo(Device_CanHevc(), yes, no) + "  ·  HDR10: " + Set_YesNo(hdr, yes, no) + "  ·  Dolby Vision: " + Set_YesNo(Device_CanDV(), yes, no) + "  ·  4K: " + Set_YesNo(Device_Can4K(), yes, no)
+    trailerDiag = Str_Of(St_Get("trailerDiag", ""))
+    if trailerDiag <> "" then about.rows.Push(Set_Info("trailerDiag", L("Último tráiler de YouTube"), trailerDiag, ""))
+    about.rows.Push(Set_Info("formats", L("Formatos compatibles"), formats + chr(10) + L("Según tu Roku y tu tele. La reproducción automática evita lo que no es compatible."), ""))
+
+    conn = Conn_Sections(integ)
+    sections = [account, profilesSection, party, appearance, layout, content, integration, conn[0], conn[1]]
+    if Live_On() then sections.Push(Live_Sections())
+    sections.Append([fusion, playback, tracking, advanced, about])
+    return { sections: sections }
+end function
+
+sub openSettings()
+    hideExpanded()
+    model = invalid
+    try
+        model = Settings_Model()
+    catch e
+        showMessage(L("No se pudieron abrir los ajustes"), Err_Text(e))
+        return
+    end try
+    if m.settingsOpen
+        m.settings.setFocus(true)
+        return
+    end if
+    m.settingsOpen = true
+    Live_ShowPage(false)
+    m.nav.active = "settings"
+    m.settings.visible = true
+    m.settings.reset = true
+    m.settings.model = model
+    m.settings.setFocus(true)
+end sub
+
+sub refreshSettings()
+    if not m.settingsOpen then return
+    try
+        m.settings.model = Str_CleanDeep(Settings_Model())
+    catch e
+        showMessage(L("No se pudieron abrir los ajustes"), Err_Text(e))
+    end try
+end sub
+
+sub closeSettings()
+    m.settingsOpen = false
+    m.settings.visible = false
+    m.nav.active = m.page
+    if m.needsReload
+        m.area = "page"
+        showPage("home")
+        return
+    end if
+    if m.page = "live" then Live_ShowPage(true)
+    m.area = "nav"
+    focusCurrent()
+end sub
+
+sub onSettingsBack()
+    closeSettings()
+end sub
+
+sub onSettingsEvent()
+    ev = m.settings.event
+    if ev = invalid or m.busy then return
+    row = Str_Of(ev.row)
+    integ = St_Integrations()
+    if Left(row, 8) = "profile:"
+        openMenu("profile", { id: Mid(row, 9) })
+        return
+    end if
+    if Left(row, 4) = "col:"
+        p = St_Prefs()
+        if p.hidden.DoesExist(row) then p.hidden.Delete(row) else p.hidden[row] = true
+        St_SavePrefs(p)
+        St_MarkDirty("catalogs")
+        m.needsReload = true
+        refreshSettings()
+        return
+    end if
+    if Conn_Row(row) then return
+    if Live_Row(row) then return
+    if Left(row, 4) = "mdb:"
+        k = Mid(row, 5)
+        integ.mdbShow[k] = not Bool_Of(integ.mdbShow[k], false)
+        St_SaveIntegrations(integ)
+        m.metaCache = {}
+        refreshSettings()
+        return
+    end if
+    if row = "nuvioLogin"
+        Auth_Open("settings")
+    else if row = "nuvioEmailHelp" or row = "nuvioServer" or row = "phone"
+        openMenu("phone", {})
+    else if row = "nuvioSync"
+        startNuvioSync()
+    else if row = "partyJoin"
+        PartyJoin_Open()
+    else if row = "nuvioLogout"
+        integ.nuvioAccess = ""
+        integ.nuvioRefresh = ""
+        integ.nuvioEmail = ""
+        St_SaveIntegrations(integ)
+        refreshSettings()
+    else if row = "newProfile"
+        showKeyboard("newProfile", L("Nombre del perfil"), "", {})
+    else if row = "profileColor"
+        p = St_ActiveProfile()
+        St_SetProfileColor(p.id, Set_Cycle(St_ProfileColors(), St_ProfileColor(St_ActiveProfileIndex())))
+        applyTheme()
+        refreshSettings()
+    else if row = "shared"
+        St_SetShared(not St_Settings().shared)
+        m.needsReload = true
+        refreshSettings()
+    else if row = "rememberProfile"
+        st = St_Settings()
+        st["rememberProfile"] = not Bool_Of(st.rememberProfile, false)
+        St_SaveSettings(st)
+        refreshSettings()
+    else if row = "corners"
+        st = St_Settings()
+        st["corners"] = Set_Cycle(["auto", "full", "hd", "off"], Str_Of(st["corners"]))
+        St_SaveSettings(st)
+        Mask_Global()
+        m.needsReload = true
+        refreshSettings()
+    else if row = "uiLang"
+        current = Str_Of(St_Settings()["uiLang"])
+        if current = "" then current = "auto"
+        items = []
+        focus = 0
+        names = Ui_LangNames()
+        codes = Ui_LangCodes()
+        for i = 0 to codes.Count() - 1
+            if codes[i] = current then focus = i
+            items.Push({ id: codes[i], label: names[codes[i]], checked: codes[i] = current })
+        end for
+        Sheet_Open({ title: L("Idioma de la interfaz"), items: items, focus: focus, style: "cards", width: 760 }, "uiLangPick", invalid)
+    else if row = "accent"
+        Accent_Open()
+    else if row = "homeLayout"
+        St_SetPref("homeLayout", Set_Cycle(["modern", "classic", "grid"], Home_Mode()))
+        Home_Reload()
+    else if row = "heroSection" or row = "posterLabels" or row = "hideUnreleased"
+        St_SetPref(row, not Bool_Of(St_Pref(row), row = "heroSection"))
+        Home_Reload()
+    else if row = "heroCatalogs"
+        HeroCats_Open(0)
+    else if row = "ambientMinutes"
+        St_SetPref("ambientMinutes", Set_Cycle([1, 2, 5, 10, 15, 30], ToInt(St_Pref("ambientMinutes"), 5)))
+        Ambient_Poke()
+        refreshSettings()
+    else if row = "cw"
+        St_SetFlag("continueWatching", not m.prefs.continueWatching)
+        applyTheme()
+        m.needsReload = true
+        refreshSettings()
+    else if row = "cwOpen"
+        St_SetPref("cwOpen", Set_Cycle(["play", "details", "upcoming"], Str_Of(St_Pref("cwOpen"))))
+        refreshSettings()
+    else if row = "cwSort"
+        St_SetPref("cwSort", Set_Cycle(["default", "streaming", "split"], Str_Of(St_Pref("cwSort"))))
+        refreshContinueRow()
+        refreshSettings()
+    else if row = "cwThumbs" or row = "cwBlur" or row = "cwFurthest" or row = "cwUnaired"
+        St_SetPref(row, not Bool_Of(St_Pref(row), row <> "cwBlur"))
+        refreshContinueRow()
+        refreshSettings()
+    else if row = "cwStyle"
+        if St_Pref("cwStyle") = "poster"
+            St_SetPref("cwStyle", "landscape")
+        else
+            St_SetPref("cwStyle", "poster")
+        end if
+        refreshContinueRow()
+        refreshSettings()
+    else if row = "discoverLocation"
+        loc = Str_Of(St_Pref("discoverLocation"))
+        if loc = "search"
+            loc = "sidebar"
+        else if loc = "sidebar"
+            loc = "off"
+        else
+            loc = "search"
+        end if
+        St_SetPref("discoverLocation", loc)
+        m.prefs = St_Prefs()
+        Disc_Location()
+        refreshSettings()
+    else if row = "rowSize"
+        St_SetRowSize(Set_Cycle(St_RowSizes(), m.prefs.rowSize))
+        applyTheme()
+        m.needsReload = true
+        refreshSettings()
+    else if row = "addons"
+        openMenu("addons", {})
+    else if row = "catalogs"
+        openMenu("catalogs", {})
+    else if row = "collection"
+        showKeyboard("collection", L("Dirección del .json de la colección"), "https://", {})
+    else if row = "reload" 
+        m.needsReload = true
+        closeSettings()
+    else if row = "tmdbEnabled"
+        if Key_Tmdb(integ) = "" and not integ.tmdbEnabled
+            showMessage(L("Falta la clave de TMDB"), L("Pega tu clave de API de TMDB desde la página de configuración del celular (pestaña Cuenta)."))
+            return
+        end if
+        integ.tmdbEnabled = not integ.tmdbEnabled
+        St_SaveIntegrations(integ)
+        m.metaCache = {}
+        refreshSettings()
+    else if row = "tmdbKey"
+        showKeyboard("integKey", L("Clave de TMDB"), Str_Of(integ.tmdbKey), { name: "tmdbKey" })
+    else if row = "mdbKey"
+        showKeyboard("integKey", L("Clave de MDBList"), Str_Of(integ.mdbKey), { name: "mdbKey" })
+    else if row = "tmdbLanguage"
+        Set_OpenLangPicker("tmdbLanguage", L("Idioma de la metadata"), [])
+    else if row = "tmdbArtwork"
+        integ.tmdbArtwork = not integ.tmdbArtwork
+        St_SaveIntegrations(integ)
+        m.metaCache = {}
+        refreshSettings()
+    else if row = "mdbAccount"
+        if (Str_Of(integ.mdbRefresh) <> "" or Str_Of(integ.mdbAccess) <> "")
+            Tracking_Connected("mdblist", Str_Of(integ.mdbUser))
+        else
+            startLogin("mdblist")
+        end if
+    else if row = "mdbEnabled"
+        if integ.mdbKey = "" and (Str_Of(integ.mdbRefresh) = "" and Str_Of(integ.mdbAccess) = "") and not integ.mdbEnabled
+            showMessage(L("Falta la clave de MDBList"), L("Conecta tu cuenta de MDBList o escribe tu clave de API."))
+            return
+        end if
+        integ.mdbEnabled = not integ.mdbEnabled
+        St_SaveIntegrations(integ)
+        m.metaCache = {}
+        refreshSettings()
+    else if row = "audioLang"
+        Set_OpenLangPicker("audioLang", L("Idioma de audio preferido"), ["system", "original"])
+    else if row = "audioLang2"
+        Set_OpenLangPicker("audioLang2", L("Idioma de audio secundario"), ["none", "original"])
+    else if row = "subLang"
+        Set_OpenLangPicker("subLang", L("Subtítulos preferidos"), ["off"])
+    else if row = "subLang2"
+        Set_OpenLangPicker("subLang2", L("Subtítulos secundarios"), ["off"])
+    else if Set_Toggles().DoesExist(row)
+        St_SetPref(row, not Bool_Of(St_Pref(row), Bool_Of(St_PlayerDefaults()[row], false)))
+        applyTheme()
+        refreshSettings()
+    else if row = "autoplayMode"
+        St_SetPref("autoplayMode", Set_Cycle(["manual", "first", "regex"], Str_Of(St_Pref("autoplayMode"))))
+        refreshSettings()
+    else if row = "autoplayRegex"
+        showKeyboard("regex", L("Patrón regex (vacío para quitarlo)"), Str_Of(St_Pref("autoplayRegex")), {})
+    else if row = "regexPreset"
+        presets = Autoplay_Presets()
+        current = -1
+        for i = 0 to presets.Count() - 1
+            if presets[i].p = Str_Of(St_Pref("autoplayRegex")) then current = i
+        end for
+        chosen = presets[(current + 1) mod presets.Count()]
+        St_SetPref("autoplayRegex", chosen.p)
+        St_SetPref("autoplayMode", "regex")
+        refreshSettings()
+    else if row = "autoplayTimeout"
+        St_SetPref("autoplayTimeout", Set_Cycle([0, 1, 2, 3, 5, 7, 10, 15, 20, 30, -1], ToInt(St_Pref("autoplayTimeout"), 3)))
+        refreshSettings()
+    else if row = "nextMode"
+        if Str_Of(St_Pref("nextMode")) = "min" then St_SetPref("nextMode", "pct") else St_SetPref("nextMode", "min")
+        refreshSettings()
+    else if row = "nextPct"
+        St_SetPref("nextPct", Set_Cycle([90, 95, 97, 98, 99], ToInt(St_Pref("nextPct"), 99)))
+        refreshSettings()
+    else if row = "nextMin"
+        St_SetPref("nextMin", Set_Cycle([1, 2, 3, 5, 10], ToInt(St_Pref("nextMin"), 2)))
+        refreshSettings()
+    else if row = "stillCount"
+        St_SetPref("stillCount", Set_Cycle([2, 3, 4, 5, 6, 8], ToInt(St_Pref("stillCount"), 3)))
+        refreshSettings()
+    else if row = "postPct"
+        St_SetPref("postPct", Set_Cycle([90, 93, 96, 98], ToInt(St_Pref("postPct"), 96)))
+        refreshSettings()
+    else if row = "subSize"
+        St_SetPref("subSize", Set_Cycle(["small", "normal", "large", "xlarge"], Str_Of(St_Pref("subSize"))))
+        refreshSettings()
+    else if row = "subColor"
+        St_SetPref("subColor", Set_Cycle(["white", "yellow", "cyan", "green", "gray"], Str_Of(St_Pref("subColor"))))
+        refreshSettings()
+    else if row = "subBg"
+        St_SetPref("subBg", Set_Cycle(["none", "soft", "solid"], Str_Of(St_Pref("subBg"))))
+        refreshSettings()
+    else if row = "subEdge"
+        St_SetPref("subEdge", Set_Cycle(["shadow", "none"], Str_Of(St_Pref("subEdge"))))
+        refreshSettings()
+    else if row = "subOffset"
+        St_SetPref("subOffset", Set_Cycle([0, 1, 2, 3, 4, 5, 6, 8, 10], ToInt(St_Pref("subOffset"), 0)))
+        refreshSettings()
+    else if row = "failoverCount"
+        St_SetPref("failoverCount", Set_Cycle([1, 2, 3, 4, 5], ToInt(St_Pref("failoverCount"), 2)))
+        refreshSettings()
+    else if row = "reuseHours"
+        St_SetPref("reuseHours", Set_Cycle([1, 3, 6, 12, 24, 48, 72, 168], ToInt(St_Pref("reuseHours"), 24)))
+        refreshSettings()
+    else if row = "trailerTarget"
+        if St_Pref("trailerTarget") = "card" then St_SetPref("trailerTarget", "hero") else St_SetPref("trailerTarget", "card")
+        applyTheme()
+        refreshSettings()
+    else if row = "badgePlace"
+        if St_Pref("badgePlace") = "top" then St_SetPref("badgePlace", "bottom") else St_SetPref("badgePlace", "top")
+        refreshSettings()
+    else if row = "expandDelay"
+        St_SetPref("expandDelay", Set_Cycle([1, 2, 3, 4, 5, 7, 10], ToInt(St_Pref("expandDelay"), 3)))
+        applyTheme()
+        refreshSettings()
+    else if row = "trailerDelay"
+        St_SetPref("trailerDelay", Set_Cycle([3, 5, 7, 10, 15], ToInt(St_Pref("trailerDelay"), 7)))
+        refreshSettings()
+    else if row = "customPoster"
+        showKeyboard("customPoster", L("Patrón del póster (vacío para quitarlo)"), Str_Of(St_Pref("customPoster")), {})
+    else if row = "trakt"
+        if integ.traktToken <> ""
+            Tracking_Connected("trakt", Str_Of(integ.traktUser))
+        else
+            startLogin("trakt")
+        end if
+    else if row = "simkl"
+        if integ.simklToken <> ""
+            Tracking_Connected("simkl", Str_Of(integ.simklUser))
+        else
+            startLogin("simkl")
+        end if
+    else if row = "scrobble"
+        integ.scrobble = not integ.scrobble
+        St_SaveIntegrations(integ)
+        refreshSettings()
+    else if row = "cwSource" or row = "libSource"
+        which = "cw"
+        if row = "libSource" then which = "lib"
+        opts = Track_Options(integ, which)
+        if opts.Count() < 2
+            showMessage(L("Fuentes"), L("Conecta Trakt, MDBList o Simkl para elegir otra fuente."))
+        else
+            cur = Track_Pick(integ, which)
+            nxt = opts[0]
+            for i = 0 to opts.Count() - 1
+                if opts[i] = cur and i + 1 < opts.Count() then nxt = opts[i + 1]
+            end for
+            integ[row] = nxt
+            St_SaveIntegrations(integ)
+            refreshSettings()
+            refreshContinueRow()
+            m.progressSoon.control = "stop"
+            m.progressSoon.control = "start"
+        end if
+    else if row = "rateSource"
+        items = [{ id: "off", label: L("Apagadas"), desc: L("Oculta el botón de calificar.") }]
+        descs = { trakt: L("Califica películas, series y episodios."), simkl: L("Califica películas y series. Si el título no está en tus listas de Simkl, se agrega."), mdblist: L("Califica películas, series y episodios.") }
+        for each src in Rate_Sources()
+            if Rate_Connected(integ, src.id) then items.Push({ id: src.id, label: src.name, desc: descs[src.id] })
+        end for
+        if items.Count() = 1
+            showMessage(L("Calificaciones"), L("Conecta Trakt, Simkl o MDBList para guardar tus calificaciones."))
+        else
+            Sheet_Open({ title: L("Calificaciones"), subtitle: L("Califica títulos desde su ficha. Tus calificaciones se guardan y se muestran desde el servicio que elijas."), items: items }, "rateSource", invalid)
+        end if
+    else if row = "moreSource"
+        cur = Str_Of(St_Pref("moreSource"))
+        if cur = "" then cur = "tmdb"
+        items = [{ id: "tmdb", label: "TMDB", desc: L("Recomendaciones de TMDB. Necesita tu clave de TMDB."), checked: cur = "tmdb" }, { id: "trakt", label: "Trakt", desc: L("Títulos relacionados de Trakt."), checked: cur = "trakt" }, { id: "simkl", label: "Simkl", desc: L("Recomendaciones de la comunidad de Simkl."), checked: cur = "simkl" }]
+        Sheet_Open({ title: L("Fuente de Más como esto"), items: items }, "moreSource", invalid)
+    else if row = "traktTranslate"
+        integ["traktTranslate"] = not Bool_Of(integ.traktTranslate, true)
+        St_SaveIntegrations(integ)
+        refreshSettings()
+    else if row = "traktComments"
+        integ["traktComments"] = not Bool_Of(integ.traktComments, true)
+        St_SaveIntegrations(integ)
+        refreshSettings()
+    else if row = "clearHistory"
+        St_ClearProgress()
+        refreshContinueRow()
+        showMessage(L("Listo"), L("Se borró el historial de Seguir viendo de este perfil."))
+    end if
+end sub
+
+sub startLogin(service as string)
+    m.login = { service: service }
+    mode = "nuvioQrStart"
+    if service = "trakt" then mode = "traktCode"
+    if service = "simkl" then mode = "simklPin"
+    if service = "mdblist" then mode = "mdbCode"
+    if service = "torbox" then mode = "debTbStart"
+    if service = "plex" then mode = "plexPin"
+    if service = "trakt" or service = "simkl" or service = "mdblist" or service = "torbox" or service = "plex"
+        names = { trakt: "Trakt", simkl: "Simkl", mdblist: "MDBList", torbox: "TorBox", plex: "Plex" }
+        m.login.dialog = true
+        m.trackAuth.info = { service: service }
+        m.trackAuth.status = L("Iniciando la conexión con {p}...").Replace("{p}", names[service])
+        m.trackAuth.visible = true
+        m.trackAuth.setFocus(true)
+    else
+        showBusy(L("Preparando el inicio de sesión..."))
+    end if
+    m.accountTask = CreateObject("roSGNode", "AccountTask")
+    m.accountTask.mode = mode
+    m.accountTask.observeField("result", "onLoginStarted")
+    m.accountTask.control = "RUN"
+end sub
+
+sub onLoginStarted(event as object)
+    task = event.getRoSGNode()
+    if m.accountTask = invalid or not task.isSameNode(m.accountTask) then return
+    m.accountTask = invalid
+    hideBusy()
+    r = task.result
+    if m.login = invalid then return
+    if Bool_Of(m.login.dialog, false)
+        if not Bool_Of(r.ok, false)
+            m.trackAuth.status = Str_Of(r.error)
+            return
+        end if
+    else if not Bool_Of(r.ok, false)
+        showMessage(L("No se pudo iniciar sesión"), Str_Of(r.error))
+        return
+    end if
+    m.login.code = Str_Of(r.code)
+    m.login.deviceCode = Str_Of(r.deviceCode)
+    m.login.userCode = Str_Of(r.userCode)
+    m.login.nonce = Str_Of(r.nonce)
+    m.login.anon = Str_Of(r.anon)
+    m.login.url = Str_Of(r.url)
+    m.login.qr = Str_Of(r.qr)
+    interval = ToInt(r.interval, 5)
+    if interval < 3 then interval = 3
+    m.loginTimer.duration = interval
+    m.loginTimer.control = "start"
+    if Bool_Of(m.login.dialog, false)
+        m.trackAuth.info = { service: m.login.service, userCode: m.login.userCode, url: m.login.url, qr: m.login.qr, expires: ToInt(r.expires, 0) }
+        m.trackAuth.status = L("Esperando aprobación")
+        return
+    end if
+    openMenu("login", {})
+end sub
+
+function menuLogin() as object
+    lg = m.login
+    names = { nuvio: "Nuvio", trakt: "Trakt", simkl: "Simkl" }
+    title = L("Conectar ") + names[lg.service]
+    url = lg.url
+    showUrl = url
+    if lg.service <> "nuvio" then showUrl = url + L("  ·  código: ") + lg.userCode
+    menu = menuOf(title, L("Escanea el código o entra a ") + showUrl + L(" desde tu celular y aprueba el acceso. Esta pantalla se cierra sola al terminar."))
+    qr = url
+    if lg.service = "trakt" then qr = url + "/" + lg.userCode
+    menu.poster = Net_QrUri(qr)
+    addEntry(menu, L("Código:  ") + lg.userCode, "", { act: "noop" })
+    addEntry(menu, L("Cancelar"), "", { act: "cancelLogin" })
+    return menu
+end function
+
+sub onLoginTimer()
+    if m.login = invalid or m.loginPoll <> invalid then return
+    mode = "nuvioQrPoll"
+    if m.login.service = "trakt" then mode = "traktPoll"
+    if m.login.service = "simkl" then mode = "simklPoll"
+    if m.login.service = "mdblist" then mode = "mdbPoll"
+    if m.login.service = "torbox" then mode = "debTbPoll"
+    if m.login.service = "plex" then mode = "plexPoll"
+    m.loginPoll = CreateObject("roSGNode", "AccountTask")
+    m.loginPoll.mode = mode
+    m.loginPoll.params = { code: m.login.code, nonce: m.login.nonce, anon: m.login.anon, deviceCode: m.login.deviceCode, userCode: m.login.userCode }
+    m.loginPoll.observeField("result", "onLoginPolled")
+    m.loginPoll.control = "RUN"
+end sub
+
+sub onLoginPolled(event as object)
+    task = event.getRoSGNode()
+    if m.loginPoll = invalid or not task.isSameNode(m.loginPoll) then return
+    m.loginPoll = invalid
+    if m.login = invalid then return
+    r = task.result
+    status = Str_Of(r.status)
+    if status = "approved" and Bool_Of(m.login.screen, false)
+        Auth_Approved()
+        return
+    else if status = "failed" and Bool_Of(m.login.screen, false)
+        m.auth.status = Str_Of(r.error)
+        m.loginTimer.control = "stop"
+        return
+    end if
+    if status = "failed" and Bool_Of(m.login.dialog, false)
+        m.trackAuth.status = Str_Of(r.error)
+        m.loginTimer.control = "stop"
+        return
+    end if
+    if status = "approved"
+        service = m.login.service
+        dialog = Bool_Of(m.login.dialog, false)
+        if dialog then TrackAuth_Hide()
+        cancelLogin()
+        refreshSettings()
+        if dialog then focusCurrent()
+        if service = "nuvio"
+            startNuvioSync()
+        else if service = "mdblist"
+            m.metaCache = {}
+            m.needsReload = true
+            Toast_Show(L("Tu cuenta quedó conectada."))
+        else if service = "torbox"
+            refreshSettings()
+            Toast_Show(L("Tu cuenta quedó conectada."))
+        else if service = "plex"
+            m.needsReload = true
+            refreshSettings()
+            Toast_Show(L("Servidor conectado."))
+        else
+            Toast_Show(L("Tu cuenta quedó conectada."))
+        end if
+    else if status = "failed"
+        cancelLogin()
+        showMessage(L("No se pudo iniciar sesión"), Str_Of(r.error))
+    else
+        if status = "slow" then m.loginTimer.duration = m.loginTimer.duration + 5
+        m.loginTimer.control = "start"
+    end if
+end sub
+
+sub cancelLogin()
+    m.loginTimer.control = "stop"
+    m.login = invalid
+    m.loginPoll = invalid
+    if m.stack.Count() > 0
+        if m.stack.Peek().id = "login" then closeMenu()
+    end if
+end sub
+
+sub startNuvioSync()
+    m.quietSync = false
+    showBusy(L("Sincronizando con Nuvio..."))
+    runNuvioSync()
+end sub
+
+sub startQuietSync()
+    if St_Integrations().nuvioAccess = "" then return
+    if m.accountTask <> invalid
+        m.pendingSync = true
+        return
+    end if
+    m.quietSync = true
+    runNuvioSync()
+end sub
+
+sub runNuvioSync()
+    m.accountTask = CreateObject("roSGNode", "AccountTask")
+    m.accountTask.mode = "nuvioSync"
+    m.accountTask.observeField("result", "onNuvioSynced")
+    m.accountTask.control = "RUN"
+end sub
+
+sub onNuvioSynced(event as object)
+    task = event.getRoSGNode()
+    if m.accountTask = invalid or not task.isSameNode(m.accountTask) then return
+    m.accountTask = invalid
+    Sync_Handle(task)
+    if Bool_Of(m.pendingSync, false)
+        m.pendingSync = false
+        startQuietSync()
+    end if
+end sub
+
+sub Sync_Handle(task as object)
+    quiet = Bool_Of(m.quietSync, false)
+    m.quietSync = false
+    if not quiet then hideBusy()
+    r = task.result
+    toast = Bool_Of(m.syncToast, false)
+    m.syncToast = false
+    if not Bool_Of(r.ok, false)
+        if not quiet or toast then showMessage(L("No se pudo sincronizar"), Str_Of(r.error))
+        return
+    end if
+    if toast then Toast_Show(L("Sincronizado con Nuvio"))
+    m.needsReload = true
+    m.metaCache = {}
+    m.watchedCache = invalid
+    applyTheme()
+    refreshSettings()
+    if m.profiles.visible
+        showProfiles()
+        return
+    end if
+    if not m.settingsOpen and m.stack.Count() = 0 then reloadWhenIdle()
+    if quiet then return
+    Toast_Show(L("Sincronizado con Nuvio"))
+end sub
+
+sub TrackAuth_Hide()
+    m.trackAuth.visible = false
+    m.trackAuth.info = { service: "" }
+end sub
+
+sub onTrackAuthEvent()
+    ev = m.trackAuth.event
+    if ev = invalid then return
+    TrackAuth_Hide()
+    m.accountTask = invalid
+    cancelLogin()
+    focusCurrent()
+end sub
+
+sub Tracking_Connected(service as string, user as string)
+    names = { trakt: "Trakt", simkl: "Simkl", mdblist: "MDBList" }
+    if user = "" then user = names[service]
+    text = L("Conectado como {u}").Replace("{u}", user) + chr(10)
+    if service = "mdblist"
+        text = text + L("Las calificaciones y las listas de MDBList usan tu cuenta.")
+    else if service = "trakt"
+        text = text + L("Sincroniza tu lista de seguimiento, progreso, seguir viendo, scrobbles y listas personales con Trakt.")
+    else
+        text = text + L("Conecta Simkl para sincronizar listas, historial, progreso de reproducción y scrobbles.")
+    end if
+    items = [{ id: service, label: L("Desconectar"), danger: true }, { id: "close", label: L("Cerrar") }]
+    Sheet_Open({ title: names[service], subtitle: text, items: items, focus: 1 }, "tracking", invalid)
+end sub
+
+sub Tracking_Disconnect(service as string)
+    integ = St_Integrations()
+    if service = "trakt"
+        integ.traktToken = ""
+        integ.traktRefresh = ""
+        integ.traktUser = ""
+    else if service = "simkl"
+        integ.simklToken = ""
+        integ.simklUser = ""
+    else if service = "mdblist"
+        integ["mdbAccess"] = ""
+        integ["mdbRefresh"] = ""
+        integ["mdbExpires"] = 0
+        integ["mdbUser"] = ""
+        if integ.mdbKey = "" then integ["mdbEnabled"] = false
+        m.metaCache = {}
+    end if
+    St_SaveIntegrations(integ)
+    refreshSettings()
+end sub
+
+sub UiLang_Apply(choice as string)
+    s = St_Settings()
+    s["uiLang"] = choice
+    St_SaveSettings(s)
+    refreshSettings()
+    target = Ui_LangResolve(choice)
+    table = {}
+    if target <> "es"
+        parsed = ParseJson(ReadAsciiFile("pkg:/locale/" + target + ".json"))
+        if type(parsed) = "roAssociativeArray" then table = parsed
+    end if
+    title = "Idioma cambiado"
+    text = "Sal del canal y vuelve a abrirlo para que se aplique el nuevo idioma."
+    ok = "Aceptar"
+    if IsStr(table[title]) then title = table[title]
+    if IsStr(table[text]) then text = table[text]
+    if IsStr(table[ok]) then ok = table[ok]
+    Sheet_Open({ title: title, subtitle: text, items: [{ id: "ok", label: ok }] }, "message", invalid)
+end sub
+
+function Set_YesNo(v as boolean, yes as string, no as string) as string
+    if v then return yes
+    return no
+end function
+
+function Track_Options(integ as object, which as string) as object
+    out = ["nuvio"]
+    if which = "lib" then out = ["local"]
+    if Str_Of(integ.traktToken) <> "" then out.Push("trakt")
+    if Str_Of(integ.mdbAccess) <> "" or Str_Of(integ.mdbRefresh) <> "" then out.Push("mdblist")
+    if which = "cw" and Str_Of(integ.simklToken) <> "" then out.Push("simkl")
+    return out
+end function
+
+function Track_Pick(integ as object, which as string) as string
+    if which = "cw"
+        v = Track_CwSource(integ)
+        if v = "" then v = "nuvio"
+        return v
+    end if
+    v = Track_LibSource(integ)
+    if v = "" then v = "local"
+    return v
+end function
+
+function Track_SourceName(v as string) as string
+    if v = "trakt" then return "Trakt"
+    if v = "mdblist" then return "MDBList"
+    if v = "simkl" then return "Simkl"
+    if v = "local" then return L("Mi lista")
+    return "Nuvio"
+end function
+
+sub Accent_Open()
+    current = UCase(Str_Of(m.prefs.accent))
+    items = []
+    focus = 0
+    known = false
+    for each c in St_Colors()
+        if c.hex = current
+            focus = items.Count()
+            known = true
+        end if
+        items.Push({ id: c.hex, label: c.name, swatch: c.hex, checked: c.hex = current })
+    end for
+    if not known
+        focus = items.Count()
+        items.Push({ id: current, label: L("Personalizado") + "  #" + current, swatch: current, checked: true })
+    end if
+    items.Push({ id: "custom", label: L("Crear un color...") })
+    Sheet_Open({ title: L("Color de acento"), items: items, focus: focus, style: "cards", width: 760 }, "accentPick", invalid)
+end sub
+
+sub Accent_Custom()
+    current = UCase(Str_Of(m.prefs.accent))
+    items = [{ id: "hex", label: L("Escribir el código del color...") }]
+    focus = 0
+    for each hex in St_CustomColors()
+        if hex = current then focus = items.Count()
+        items.Push({ id: hex, label: "#" + hex, swatch: hex, checked: hex = current })
+    end for
+    Sheet_Open({ title: L("Crear un color"), items: items, focus: focus, style: "cards", width: 760 }, "accentCustom", invalid)
+end sub
+
+sub Accent_Apply(hex as string)
+    if not St_SetAccent(hex) then return
+    applyTheme()
+    m.settings.accent = m.accent
+    refreshSettings()
+end sub
+
+sub Home_Reload()
+    m.homeRows.content = invalid
+    m.needsReload = true
+    applyTheme()
+    refreshSettings()
+end sub
+
+sub HeroCats_Open(focus as integer)
+    chosen = St_Pref("heroCatalogs")
+    picked = {}
+    if type(chosen) = "roArray"
+        for each k in chosen
+            if IsStr(k) then picked[k] = true
+        end for
+    end if
+    items = []
+    if type(m.catalogs) = "roArray"
+        for each c in m.catalogs
+            if type(c) = "roAssociativeArray" and not Bool_Of(c.hidden, false)
+                key = Hero_Key(Str_Of(c.key))
+                label = Str_Glyphs(Str_Of(c.name)).Trim() + "  ·  " + TypePlural(Str_Of(c.kind))
+                items.Push({ id: key, label: label, checked: picked.DoesExist(key) })
+            end if
+        end for
+    end if
+    if items.Count() = 0
+        showMessage(L("Catálogos de la portada"), L("Primero agrega addons con catálogos."))
+        return
+    end if
+    items.Push({ id: "auto", label: L("Automático (quitar la selección)"), checked: picked.Count() = 0 })
+    if focus >= items.Count() then focus = items.Count() - 1
+    Sheet_Open({ title: L("Catálogos de la portada"), subtitle: L("Elige uno o más. Atrás para terminar."), items: items, focus: focus, style: "cards", width: 900 }, "heroCats", invalid)
+end sub
+
+sub HeroCats_Toggle(choice as string)
+    chosen = St_Pref("heroCatalogs")
+    list = []
+    found = false
+    if type(chosen) = "roArray" and choice <> "auto"
+        for each k in chosen
+            if IsStr(k)
+                if k = choice then found = true else list.Push(k)
+            end if
+        end for
+        if not found then list.Push(choice)
+    end if
+    St_SetPref("heroCatalogs", list)
+    m.homeRows.content = invalid
+    m.needsReload = true
+    focus = 0
+    if type(m.catalogs) = "roArray"
+        index = 0
+        for each c in m.catalogs
+            if type(c) = "roAssociativeArray" and not Bool_Of(c.hidden, false)
+                if Hero_Key(Str_Of(c.key)) = choice then focus = index
+                index = index + 1
+            end if
+        end for
+        if choice = "auto" then focus = index
+    end if
+    refreshSettings()
+    HeroCats_Open(focus)
+end sub

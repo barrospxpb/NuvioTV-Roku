@@ -1,0 +1,28 @@
+# Builds e artefatos locais
+/dist/
+/build/
+*.zip
+*.wgt
+*.tpk
+*.apk
+
+# Chaves, segredos e dados locais (não publicar)
+*.key
+*.pem
+*.p12
+*.pfx
+*.jks
+.env
+.env.*
+secrets.json
+credentials.json
+private-config.*
+*.log
+
+# Ambientes locais
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+__pycache__/
+*.pyc

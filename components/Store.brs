@@ -1,0 +1,1367 @@
+function St_Section() as object
+    return CreateObject("roRegistrySection", "nuviotv")
+end function
+
+function St_Big(key as string) as boolean
+    for each prefix in ["library_", "progress_", "libops_"]
+        if Left(key, Len(prefix)) = prefix then return true
+    end for
+    return false
+end function
+
+function St_Get(key as string, fallback as dynamic) as dynamic
+    sec = St_Section()
+    if not St_Big(key)
+        copy = St_ReadFile("reg_" + key)
+        if copy <> invalid then return copy
+    end if
+    if St_Big(key)
+        data = St_ReadFile("reg_" + key)
+        if data <> invalid then return data
+        if not sec.Exists(key) then return fallback
+        legacy = ParseJson(sec.Read(key))
+        if legacy = invalid then return fallback
+        St_WriteFile("reg_" + key, legacy)
+        sec.Delete(key)
+        sec.Flush()
+        return legacy
+    end if
+    hit = St_Memo("get_" + key)
+    if hit <> invalid
+        if hit.val = invalid then return fallback
+        return hit.val
+    end if
+    data = invalid
+    if sec.Exists(key)
+        raw = sec.Read(key)
+        if raw <> "" then data = ParseJson(raw)
+    end if
+    St_MemoSet("get_" + key, data)
+    if data = invalid then return fallback
+    return data
+end function
+
+sub St_Set(key as string, value as dynamic)
+    sec = St_Section()
+    if St_Big(key)
+        St_WriteFile("reg_" + key, value)
+        if sec.Exists(key)
+            sec.Delete(key)
+            sec.Flush()
+        end if
+        return
+    end if
+    St_WriteFile("reg_" + key, value)
+    sec.Write(key, FormatJson(value))
+    sec.Flush()
+end sub
+
+sub St_Migrate()
+    ' Upgrade from previous Nuvio Roku Build 81. Never overwrite a newer session.
+    sec = St_Section()
+    older = CreateObject("roRegistrySection", "NuvioRokuIPTV")
+    if older <> invalid
+        for each name in ["settings", "integrations", "profiles", "addons"]
+            if not sec.Exists(name) and St_ReadFile("reg_" + name) = invalid and older.Exists(name)
+                raw = older.Read(name)
+                parsed = ParseJson(raw)
+                if parsed <> invalid
+                    sec.Write(name, raw)
+                end if
+            end if
+        end for
+        sec.Flush()
+    end if
+    ' Build 81 stored the official account in NuvioAccount, not NuvioRokuIPTV.
+    ' One-time migration only for a not-yet-onboarded installation; never
+    ' override an existing session or re-sign-in after choosing guest.
+    if not Bool_Of(St_Get("authSeen", false), false) and not Bool_Of(St_Get("legacyAccountMigrated", false), false)
+        current = St_Integrations()
+        if current.nuvioAccess = "" and current.nuvioRefresh = ""
+            account = CreateObject("roRegistrySection", "NuvioAccount")
+            if account <> invalid and account.Exists("accessToken") and account.Exists("publishableKey") and account.Exists("backendUrl")
+                access = account.Read("accessToken")
+                publicKey = account.Read("publishableKey")
+                backend = account.Read("backendUrl")
+                if access <> "" and publicKey <> "" and backend <> "" and Left(backend, 8) = "https://"
+                    current.nuvioAccess = access
+                    current.nuvioRefresh = account.Read("refreshToken")
+                    current.nuvioKey = publicKey
+                    current.nuvioUrl = backend
+                    St_SaveIntegrations(current)
+                    St_Set("legacyAccountMigrated", true)
+                    print "[NuvioAuth] sessão anterior localizada e importada; validação pendente"
+                end if
+            end if
+        end if
+    end if
+    for each key in sec.GetKeyList()
+        if St_Big(key) then St_Get(key, invalid)
+    end for
+end sub
+
+sub St_Remove(key as string)
+    fs = St_Fs()
+    for each path in St_FilePaths("reg_" + key)
+        if fs = invalid
+            WriteAsciiFile(path, "")
+        else if fs.Exists(path)
+            fs.Delete(path)
+        end if
+    end for
+    St_Bump("reg_" + key)
+    sec = St_Section()
+    if sec.Exists(key)
+        sec.Delete(key)
+        sec.Flush()
+    end if
+end sub
+
+function St_Colors() as object
+    return [
+        { name: L("Morado"), hex: "7C5CFF" }
+        { name: L("Azul"), hex: "3D8BFF" }
+        { name: L("Turquesa"), hex: "19C3B1" }
+        { name: L("Verde"), hex: "3CCB6C" }
+        { name: L("Naranja"), hex: "FF9A1F" }
+        { name: L("Rojo"), hex: "FF4D5E" }
+        { name: L("Rosa"), hex: "FF5CA8" }
+    ]
+end function
+
+function St_ColorName(hex as string) as string
+    for each c in St_Colors()
+        if c.hex = UCase(hex) then return c.name
+    end for
+    return L("Personalizado") + "  #" + UCase(hex)
+end function
+
+function St_CustomColors() as object
+    return ["B75AFF", "8E24AA", "5C6BC0", "1E88E5", "3185F5", "00ACC1", "22D37C", "43A047", "9CCC65", "E8A91C", "FB8C00", "F4511E", "E53935", "D81B60", "EC70A9", "8D6E63", "AAB2BE", "F5F5F5"]
+end function
+
+function St_HexColor(text as string) as string
+    t = UCase(text.Trim())
+    if Left(t, 1) = "#" then t = Mid(t, 2)
+    if Len(t) = 3 and CreateObject("roRegex", "^[0-9A-F]{3}$", "").IsMatch(t) then t = Left(t, 1) + Left(t, 1) + Mid(t, 2, 1) + Mid(t, 2, 1) + Right(t, 1) + Right(t, 1)
+    if CreateObject("roRegex", "^[0-9A-F]{6}$", "").IsMatch(t) then return t
+    return ""
+end function
+
+function St_RowSizes() as object
+    return [20, 40, 60, 100]
+end function
+
+function St_Settings() as object
+    s = St_Get("settings", invalid)
+    if type(s) <> "roAssociativeArray" then s = {}
+    if not IsBool(s.shared) then s.shared = true
+    if not IsStr(s.active) then s.active = ""
+    return s
+end function
+
+sub St_SaveSettings(s as object)
+    St_Set("settings", s)
+end sub
+
+function St_Profiles() as object
+    hit = St_Memo("profiles")
+    if hit <> invalid then return St_CopyList(hit.val)
+    list = St_Get("profiles", invalid)
+    clean = []
+    if type(list) = "roArray"
+        for each p in list
+            if type(p) = "roAssociativeArray" and IsStr(p.id) and IsStr(p.name)
+                clean.Push({ id: p.id, name: p.name, color: Str_Of(p.color), remote: ToInt(p.remote, 0), avatar: Str_Of(p.avatar), pin: p.pin = true, primaryAddons: Bool_Of(p.primaryAddons, false) })
+            end if
+        end for
+    end if
+    if clean.Count() = 0
+        clean.Push({ id: "p1", name: L("Principal"), color: "", remote: 0, avatar: "", pin: false })
+        St_Set("profiles", clean)
+    end if
+    St_MemoSet("profiles", St_CopyList(clean))
+    return clean
+end function
+
+function St_CopyList(list as object) as object
+    out = []
+    for each item in list
+        copy = {}
+        copy.Append(item)
+        out.Push(copy)
+    end for
+    return out
+end function
+
+function St_ProfileIndex(profiles as object, pid as string) as integer
+    for i = 0 to profiles.Count() - 1
+        if profiles[i].id = pid then return i
+    end for
+    return -1
+end function
+
+function St_ActiveProfile() as object
+    profiles = St_Profiles()
+    idx = St_ProfileIndex(profiles, St_Settings().active)
+    if idx < 0 then idx = 0
+    return profiles[idx]
+end function
+
+function St_SetActiveProfile(pid as string) as boolean
+    if St_ProfileIndex(St_Profiles(), pid) < 0 then return false
+    s = St_Settings()
+    s.active = pid
+    St_SaveSettings(s)
+    return true
+end function
+
+function St_AddProfile(name as string) as dynamic
+    clean = name.Trim()
+    if clean = "" then return invalid
+    profiles = St_Profiles()
+    if profiles.Count() >= 8 then return invalid
+    stamp = CreateObject("roDateTime").AsSeconds()
+    pid = "p" + stamp.ToStr() + Rnd(999).ToStr()
+    profile = { id: pid, name: Left(clean, 24) }
+    profiles.Push(profile)
+    St_Set("profiles", profiles)
+    return profile
+end function
+
+function St_RenameProfile(pid as string, name as string) as boolean
+    clean = name.Trim()
+    if clean = "" then return false
+    profiles = St_Profiles()
+    idx = St_ProfileIndex(profiles, pid)
+    if idx < 0 then return false
+    profiles[idx].name = Left(clean, 24)
+    St_Set("profiles", profiles)
+    return true
+end function
+
+function St_DeleteProfile(pid as string) as boolean
+    profiles = St_Profiles()
+    if profiles.Count() <= 1 then return false
+    idx = St_ProfileIndex(profiles, pid)
+    if idx < 0 then return false
+    profiles.Delete(idx)
+    St_Set("profiles", profiles)
+    St_Remove("addons_" + pid)
+    St_Remove("prefs_" + pid)
+    St_Remove("progress_" + pid)
+    St_Remove("library_" + pid)
+    St_WriteFile("subdelay_" + pid, {})
+    s = St_Settings()
+    if s.active = pid
+        s.active = profiles[0].id
+        St_SaveSettings(s)
+    end if
+    return true
+end function
+
+sub St_SetShared(value as boolean)
+    s = St_Settings()
+    if s.shared = value then return
+    current = St_Addons()
+    s.shared = value
+    St_SaveSettings(s)
+    if St_Addons().Count() = 0 and current.Count() > 0 then St_SaveAddons(current)
+end sub
+
+function St_AddonsKey() as string
+    if St_Settings().shared then return "addons"
+    return "addons_" + St_ActiveProfile().id
+end function
+
+function St_Addons() as object
+    list = St_Get(St_AddonsKey(), invalid)
+    clean = []
+    if type(list) = "roArray"
+        for each u in list
+            if IsStr(u) and u <> "" then clean.Push(St_NormalizeUrl(u))
+        end for
+    end if
+    return clean
+end function
+
+sub St_SaveAddons(list as object)
+    St_Set(St_AddonsKey(), list)
+    St_MarkDirty("addons")
+end sub
+
+function St_NormalizeUrl(raw as dynamic) as string
+    if not IsStr(raw) then return ""
+    url = raw.Trim()
+    if LCase(Left(url, 10)) = "stremio://" then url = "https://" + Mid(url, 11)
+    query = ""
+    cut = Instr(1, url, "?")
+    if cut > 0
+        query = Mid(url, cut + 1)
+        url = Left(url, cut - 1)
+    end if
+    if LCase(Right(url, 14)) = "/manifest.json" then url = Left(url, Len(url) - 14)
+    while Len(url) > 0 and Right(url, 1) = "/"
+        url = Left(url, Len(url) - 1)
+    end while
+    if url <> "" and Instr(1, url, "://") = 0 then url = "https://" + url
+    if url <> "" and query <> "" then url = url + "?" + query
+    return url
+end function
+
+function St_AddAddon(raw as dynamic) as boolean
+    url = St_NormalizeUrl(raw)
+    valid = CreateObject("roRegex", "^https?://([^/\s:@]+\.[^/\s:@]+|localhost)(:\d+)?(/|\?|$)", "i")
+    if not valid.IsMatch(url) then return false
+    list = St_Addons()
+    for each u in list
+        if LCase(u) = LCase(url) then return false
+    end for
+    list.Push(url)
+    St_SaveAddons(list)
+    return true
+end function
+
+function St_RemoveAddon(index as integer) as boolean
+    list = St_Addons()
+    if index < 0 or index >= list.Count() then return false
+    list.Delete(index)
+    St_SaveAddons(list)
+    return true
+end function
+
+function St_MoveAddon(index as integer, delta as integer) as integer
+    list = St_Addons()
+    target = index + delta
+    if index < 0 or index >= list.Count() or target < 0 or target >= list.Count() then return index
+    tmp = list[index]
+    list[index] = list[target]
+    list[target] = tmp
+    St_SaveAddons(list)
+    return target
+end function
+
+function St_PrefsKey() as string
+    return "prefs_" + St_ActiveProfile().id
+end function
+
+function St_Prefs() as object
+    hit = St_Memo("prefs")
+    if hit <> invalid
+        copy = {}
+        copy.Append(hit.val)
+        return copy
+    end if
+    p = St_Get(St_PrefsKey(), invalid)
+    if type(p) <> "roAssociativeArray" then p = {}
+    p = St_CaseFix(p, St_PlayerDefaults(), true)
+    if not IsStr(p.accent) then p.accent = "7C5CFF"
+    p.rowSize = ToInt(p.rowSize, 40)
+    if p.rowSize < 10 then p.rowSize = 40
+    if not IsBool(p.continueWatching) then p.continueWatching = true
+    if not IsBool(p.captions) then p.captions = false
+    if type(p.order) <> "roArray" then p.order = []
+    if type(p.hidden) <> "roAssociativeArray" then p.hidden = {}
+    keep = {}
+    keep.Append(p)
+    St_MemoSet("prefs", keep)
+    return p
+end function
+
+sub St_SavePrefs(p as object)
+    St_Set(St_PrefsKey(), p)
+    St_MarkDirty("settings")
+end sub
+
+sub St_Touch(name as string)
+    pid = St_ActiveProfile().id
+    t = St_Get("touched_" + pid, invalid)
+    if type(t) <> "roAssociativeArray" then t = {}
+    t[name] = true
+    St_Set("touched_" + pid, t)
+end sub
+
+function St_Touched(pid as string) as object
+    t = St_Get("touched_" + pid, invalid)
+    if type(t) <> "roAssociativeArray" then t = {}
+    return t
+end function
+
+sub St_MarkDirty(kind as string)
+    pid = St_ActiveProfile().id
+    d = St_Get("syncdirty_" + pid, invalid)
+    if type(d) <> "roAssociativeArray" then d = {}
+    d[kind] = true
+    St_Set("syncdirty_" + pid, d)
+    if m.global <> invalid
+        if m.global.hasField("syncDirty") then m.global.syncDirty = m.global.syncDirty + 1
+    end if
+end sub
+
+function St_SyncDirty(pid as string) as object
+    d = St_Get("syncdirty_" + pid, invalid)
+    if type(d) <> "roAssociativeArray" then d = {}
+    return d
+end function
+
+sub St_ClearDirty(pid as string, kinds as object)
+    d = St_SyncDirty(pid)
+    for each k in kinds
+        if d.DoesExist(k) then d.Delete(k)
+    end for
+    St_Set("syncdirty_" + pid, d)
+end sub
+
+sub St_LibraryOp(op as string, entry as object)
+    pid = St_ActiveProfile().id
+    ops = St_Get("libops_" + pid, invalid)
+    if type(ops) <> "roArray" then ops = []
+    out = []
+    for each o in ops
+        if type(o) = "roAssociativeArray" and Str_Of(o.id) <> entry.id then out.Push(o)
+    end for
+    out.Push({ op: op, id: entry.id, kind: Str_Of(entry.kind), name: Left(Str_Of(entry.name), 80), poster: Str_Of(entry.poster) })
+    while out.Count() > 30
+        out.Shift()
+    end while
+    St_Set("libops_" + pid, out)
+    St_MarkDirty("library")
+end sub
+
+function St_ClientId() as string
+    id = Str_Of(St_Get("clientId", ""))
+    if Len(id) >= 16 then return id
+    chars = "abcdefghijklmnopqrstuvwxyz0123456789"
+    id = "roku"
+    for i = 1 to 28
+        id = id + Mid(chars, Rnd(Len(chars)), 1)
+    end for
+    St_Set("clientId", id)
+    return id
+end function
+
+function St_SetAccent(hex as string) as boolean
+    value = St_HexColor(hex)
+    if value = "" then return false
+    p = St_Prefs()
+    p.accent = value
+    St_Touch("accent")
+    St_SavePrefs(p)
+    return true
+end function
+
+function St_SetRowSize(size as integer) as boolean
+    for each s in St_RowSizes()
+        if s = size
+            p = St_Prefs()
+            p.rowSize = size
+            St_SavePrefs(p)
+            return true
+        end if
+    end for
+    return false
+end function
+
+sub St_SetFlag(name as string, value as boolean)
+    p = St_Prefs()
+    p[name] = value
+    St_SavePrefs(p)
+end sub
+
+function St_CatalogKey(manifest as object, base as string, cat as object) as string
+    prefix = Str_Of(manifest.id)
+    if prefix = "" then prefix = base
+    return prefix + "|" + Str_Of(cat["type"]) + "|" + Str_Of(cat.id)
+end function
+
+function St_ApplyOrder(all as object, order as object) as object
+    byKey = {}
+    for each c in all
+        byKey[c.key] = c
+    end for
+    result = []
+    used = {}
+    if type(order) = "roArray"
+        for each k in order
+            if IsStr(k)
+                if byKey.DoesExist(k) and not used.DoesExist(k)
+                    result.Push(byKey[k])
+                    used[k] = true
+                end if
+            end if
+        end for
+    end if
+    for each c in all
+        if not used.DoesExist(c.key)
+            result.Push(c)
+            used[c.key] = true
+        end if
+    end for
+    return result
+end function
+
+sub St_SetCatalogHidden(catalogs as object, key as string, hidden as boolean)
+    p = St_Prefs()
+    if hidden
+        p.hidden[key] = true
+    else if p.hidden.DoesExist(key)
+        p.hidden.Delete(key)
+    end if
+    St_SavePrefs(p)
+    St_MarkDirty("catalogs")
+    for each c in catalogs
+        if c.key = key then c.hidden = hidden
+    end for
+end sub
+
+function St_MoveCatalog(catalogs as object, key as string, delta as integer) as boolean
+    idx = -1
+    for i = 0 to catalogs.Count() - 1
+        if catalogs[i].key = key
+            idx = i
+            exit for
+        end if
+    end for
+    target = idx + delta
+    if idx < 0 or target < 0 or target >= catalogs.Count() then return false
+    tmp = catalogs[idx]
+    catalogs[idx] = catalogs[target]
+    catalogs[target] = tmp
+    keys = []
+    for each c in catalogs
+        keys.Push(c.key)
+    end for
+    p = St_Prefs()
+    p.order = keys
+    St_SavePrefs(p)
+    St_MarkDirty("catalogs")
+    return true
+end function
+
+function St_ProgressKey() as string
+    return "progress_" + St_ActiveProfile().id
+end function
+
+function St_Progress() as object
+    list = St_Get(St_ProgressKey(), invalid)
+    clean = []
+    if type(list) = "roArray"
+        for each e in list
+            if type(e) = "roAssociativeArray" and IsStr(e.metaId) and IsStr(e.videoId)
+                clean.Push(e)
+            end if
+        end for
+    end if
+    return clean
+end function
+
+sub St_SaveProgress(entry as object)
+    if entry.updated = invalid then entry.updated = CreateObject("roDateTime").AsSeconds()
+    out = [entry]
+    for each e in St_Progress()
+        if e.metaId <> entry.metaId and out.Count() < 12 then out.Push(e)
+    end for
+    St_Set(St_ProgressKey(), out)
+    if Bool_Of(entry.nextUp, false) then return
+    pid = St_ActiveProfile().id
+    pending = St_ReadFile("progdel_" + pid)
+    if type(pending) = "roArray" and pending.Count() > 0
+        kept = []
+        for each id in pending
+            if id <> entry.metaId then kept.Push(id)
+        end for
+        if kept.Count() <> pending.Count() then St_WriteFile("progdel_" + pid, kept)
+    end if
+    St_MarkDirty("progress")
+end sub
+
+function St_ResumeFor(videoId as string) as integer
+    for each e in St_ProgressView()
+        if e.videoId = videoId then return ToInt(e.position, 0)
+    end for
+    return 0
+end function
+
+sub St_RemoveProgress(metaId as string)
+    Track_DropProgress(metaId)
+    out = []
+    found = false
+    for each e in St_Progress()
+        if e.metaId = metaId
+            found = true
+        else
+            out.Push(e)
+        end if
+    end for
+    if not found then return
+    St_Set(St_ProgressKey(), out)
+    pid = St_ActiveProfile().id
+    pending = St_ReadFile("progdel_" + pid)
+    if type(pending) <> "roArray" then pending = []
+    pending.Push(metaId)
+    while pending.Count() > 50
+        pending.Shift()
+    end while
+    St_WriteFile("progdel_" + pid, pending)
+    St_MarkDirty("progress")
+end sub
+
+function St_ProgressSyncKey(e as object) as string
+    id = Str_Of(e.metaId)
+    season = ToInt(e.season, -1)
+    episode = ToInt(e.ep, -1)
+    parts = Str_Of(e.videoId).Split(":")
+    if (season < 0 or episode < 0) and parts.Count() >= 3
+        season = parts[parts.Count() - 2].ToInt()
+        episode = parts[parts.Count() - 1].ToInt()
+    end if
+    if season >= 0 and episode > 0 then return id + "_s" + season.ToStr() + "e" + episode.ToStr()
+    return id
+end function
+
+function St_WatchedKey(id as string, season as dynamic, episode as dynamic) as string
+    s = ToInt(season, -1)
+    e = ToInt(episode, -1)
+    if s >= 0 and e > 0 then return id + ":" + s.ToStr() + ":" + e.ToStr()
+    return id
+end function
+
+function St_Watched() as object
+    if m.watchedCache <> invalid and m.watchedPid = St_ActiveProfile().id then return m.watchedCache
+    data = St_ReadFile("watched_" + St_ActiveProfile().id)
+    if type(data) <> "roAssociativeArray" then data = {}
+    m.watchedCache = data
+    m.watchedPid = St_ActiveProfile().id
+    return data
+end function
+
+sub St_SaveWatched(data as object)
+    m.watchedCache = data
+    m.watchedPid = St_ActiveProfile().id
+    St_WriteFile("watched_" + St_ActiveProfile().id, data)
+end sub
+
+function St_IsWatched(id as string) as boolean
+    if id = "" then return false
+    return St_Watched().DoesExist(id)
+end function
+
+sub St_SetWatched(items as object, watched as boolean, manual = true as boolean)
+    data = St_Watched()
+    pid = St_ActiveProfile().id
+    ops = St_ReadFile("watchops_" + pid)
+    if type(ops) <> "roArray" then ops = []
+    tops = invalid
+    if manual
+        tops = St_ReadFile("trackops_" + pid)
+        if type(tops) <> "roArray" then tops = []
+    end if
+    now = St_Now()
+    for each it in items
+        key = St_WatchedKey(Str_Of(it.id), it.season, it.episode)
+        if watched
+            data[key] = { k: Str_Of(it.kind), t: Left(Str_Of(it.title), 60), at: now }
+            ops.Push({ op: "add", id: Str_Of(it.id), kind: Str_Of(it.kind), title: Left(Str_Of(it.title), 80), season: it.season, episode: it.episode, at: now })
+            if tops <> invalid then tops.Push({ op: "add", id: Str_Of(it.id), kind: Str_Of(it.kind), season: it.season, episode: it.episode, at: now })
+        else
+            data.Delete(key)
+            ops.Push({ op: "del", id: Str_Of(it.id), season: it.season, episode: it.episode })
+            if tops <> invalid then tops.Push({ op: "del", id: Str_Of(it.id), kind: Str_Of(it.kind), season: it.season, episode: it.episode })
+        end if
+    end for
+    if tops <> invalid
+        while tops.Count() > 400
+            tops.Shift()
+        end while
+        St_WriteFile("trackops_" + pid, tops)
+        if m.global <> invalid and m.global.hasField("trackPush") then m.global.trackPush = m.global.trackPush + 1
+    end if
+    while ops.Count() > 400
+        ops.Shift()
+    end while
+    St_SaveWatched(data)
+    St_WriteFile("watchops_" + pid, ops)
+    St_MarkDirty("watched")
+end sub
+
+sub St_ClearProgress()
+    St_Remove(St_ProgressKey())
+end sub
+
+function St_ProfileColors() as object
+    return ["7C4DFF", "2F80ED", "27AE60", "F2994A", "EB5757", "E056FD", "16A085", "F2C94C"]
+end function
+
+function St_ProfileColor(index as integer) as string
+    profiles = St_Profiles()
+    if index >= 0 and index < profiles.Count()
+        if profiles[index].color <> "" then return UCase(profiles[index].color)
+    end if
+    colors = St_ProfileColors()
+    if index < 0 then index = 0
+    return colors[index mod colors.Count()]
+end function
+
+function St_ActiveProfileIndex() as integer
+    profiles = St_Profiles()
+    idx = St_ProfileIndex(profiles, St_Settings().active)
+    if idx < 0 then idx = 0
+    return idx
+end function
+
+function St_LibraryKey() as string
+    return "library_" + St_ActiveProfile().id
+end function
+
+function St_Library() as object
+    list = St_Get(St_LibraryKey(), invalid)
+    clean = []
+    if type(list) = "roArray"
+        for each e in list
+            if type(e) = "roAssociativeArray" and IsStr(e.id) then clean.Push(e)
+        end for
+    end if
+    return clean
+end function
+
+function St_InLibrary(id as string) as boolean
+    if Track_LibSource(St_Integrations()) <> "" then return Track_InWatchlist(id)
+    for each e in St_Library()
+        if e.id = id then return true
+    end for
+    return false
+end function
+
+sub St_FixLibraryPoster(id as string, poster as string)
+    if poster = "" then return
+    list = St_Library()
+    changed = false
+    for each e in list
+        if e.id = id and Str_Of(e.poster) <> poster
+            e.poster = poster
+            changed = true
+        end if
+    end for
+    if changed then St_Set(St_LibraryKey(), list)
+end sub
+
+function St_ToggleLibrary(entry as object) as boolean
+    remote = Track_LibSource(St_Integrations())
+    if remote <> "" then return Track_ToggleWatchlist(remote, entry)
+    list = St_Library()
+    out = []
+    found = false
+    for each e in list
+        if e.id = entry.id
+            found = true
+        else
+            out.Push(e)
+        end if
+    end for
+    if not found
+        out.Unshift({ id: entry.id, kind: Str_Of(entry.kind), name: Left(Str_Of(entry.name), 80), poster: Str_Of(entry.poster) })
+        while out.Count() > 40
+            out.Pop()
+        end while
+    end if
+    St_Set(St_LibraryKey(), out)
+    if found then St_LibraryOp("remove", entry) else St_LibraryOp("add", entry)
+    return not found
+end function
+
+function Tmdb_Lang() as string
+    raw = Str_Of(St_Pref("tmdbLanguage")).Trim().Replace("_", "-")
+    if raw = "" then return Tmdb_DefaultLang()
+    parts = raw.Split("-")
+    out = LCase(parts[0])
+    if parts.Count() = 2 then out = out + "-" + UCase(parts[1])
+    if out = "es-419" then out = "es-MX"
+    return out
+end function
+
+function Tmdb_DefaultLang() as string
+    ui = ""
+    if m.global <> invalid and m.global.hasField("uiLang") then ui = Str_Of(m.global.uiLang)
+    if ui = "" or ui = "auto" then ui = LCase(Left(CreateObject("roDeviceInfo").GetCurrentLocale(), 2))
+    map = { es: "es-MX", en: "en-US", pt: "pt-BR", fr: "fr-FR", de: "de-DE", it: "it-IT", nl: "nl-NL", pl: "pl-PL", tr: "tr-TR", ro: "ro-RO", cs: "cs-CZ", hu: "hu-HU" }
+    if map.DoesExist(ui) then return map[ui]
+    return "en-US"
+end function
+
+function Key_Tmdb(integ as object) as string
+    return Str_Of(integ.tmdbKey)
+end function
+
+function Key_TraktId(integ as object) as string
+    if Config_TraktClientId() <> "" then return Config_TraktClientId()
+    return Str_Of(integ.traktClientId)
+end function
+
+function Key_TraktSecret(integ as object) as string
+    if Config_TraktClientSecret() <> "" then return Config_TraktClientSecret()
+    return Str_Of(integ.traktSecret)
+end function
+
+function Key_SimklId(integ as object) as string
+    if Config_SimklClientId() <> "" then return Config_SimklClientId()
+    return Str_Of(integ.simklClientId)
+end function
+
+function St_Integrations() as object
+    s = St_Get("integrations", invalid)
+    if type(s) <> "roAssociativeArray" then s = {}
+    defaults = {
+        tmdbKey: ""
+        tmdbEnabled: false
+        tmdbArtwork: true
+        mdbKey: ""
+        mdbEnabled: false
+        mdbAccess: ""
+        mdbRefresh: ""
+        mdbExpires: 0
+        mdbUser: ""
+        mdbLast: ""
+        mdbShow: { imdb: true, tomatoes: true, audience: true, metacritic: true, letterboxd: true, tmdb: false, trakt: false }
+        traktClientId: ""
+        traktSecret: ""
+        traktToken: ""
+        traktRefresh: ""
+        traktUser: ""
+        simklClientId: ""
+        simklToken: ""
+        simklUser: ""
+        scrobble: true
+        cwSource: "nuvio"
+        libSource: "local"
+        traktComments: true
+        traktTranslate: true
+        torboxKey: ""
+        torboxFrom: ""
+        premiumizeKey: ""
+        premiumizeFrom: ""
+        realdebridKey: ""
+        realdebridFrom: ""
+        cloudOn: true
+        rateSource: ""
+        debridOn: false
+        debridPick: ""
+        nuvioUrl: Config_NuvioServer()
+        nuvioKey: ""
+        nuvioAccess: ""
+        nuvioRefresh: ""
+        nuvioEmail: ""
+        nuvioLastSync: ""
+    }
+    s = St_CaseFix(s, defaults, false)
+    for each k in defaults
+        if not s.DoesExist(k) then s[k] = defaults[k]
+    end for
+    if type(s.mdbShow) <> "roAssociativeArray" then s.mdbShow = defaults.mdbShow
+    if Str_Of(s["nuvioUrl"]) = "" then s["nuvioUrl"] = defaults.nuvioUrl
+    return s
+end function
+
+function St_CaseFix(src as object, defaults as object, preferMixed as boolean) as object
+    out = {}
+    for each k in src
+        v = src[k]
+        if not out.DoesExist(k)
+            out[k] = v
+        else
+            prev = FormatJson([out[k]])
+            now = FormatJson([v])
+            base = FormatJson([defaults[k]])
+            if prev <> now
+                if prev = base
+                    out[k] = v
+                else if now <> base and (k = LCase(k)) <> preferMixed
+                    out[k] = v
+                end if
+            end if
+        end if
+    end for
+    return out
+end function
+
+sub St_SaveIntegrations(s as object)
+    St_Set("integrations", s)
+end sub
+
+sub St_SetIntegration(name as string, value as dynamic)
+    s = St_Integrations()
+    s[name] = value
+    St_SaveIntegrations(s)
+end sub
+
+function St_PlayerDefaults() as object
+    return {
+        cwStyle: "landscape"
+        cwThumbs: true
+        cwUnaired: true
+        cwFurthest: true
+        cwBlur: false
+        cwSort: "default"
+        cwOpen: "play"
+        moreSource: "tmdb"
+        audioLang: "system"
+        audioLang2: "none"
+        subLang: "spa"
+        subLang2: "off"
+        forcedSubs: false
+        openSubs: true
+        pauseOverlay: true
+        autoNext: true
+        clock: true
+        tmdbLanguage: ""
+        showAddonName: false
+        showTypeSuffix: true
+        autoplayMode: "manual"
+        autoplayRegex: ""
+        autoplayScope: "all"
+        autoplayAddons: []
+        autoplayTimeout: 3
+        reuseLink: false
+        reuseHours: 24
+        loadDetails: true
+        audioSafe: true
+        hideSpoilers: false
+        shuffleButton: true
+        stereoOnly: false
+        sourceFailover: false
+        homeLayout: "modern"
+        heroFull: false
+        classicGradient: false
+        heroSection: true
+        heroCatalogs: []
+        posterLabels: false
+        hideUnreleased: false
+        homeRatings: true
+        navModern: false
+        navBlur: false
+        navCollapsed: false
+        ambientOn: false
+        ambientMinutes: 5
+        failoverCount: 2
+        bingeNext: true
+        bingeReuse: false
+        expandPoster: true
+        expandDelay: 3
+        expandTrailer: false
+        expandMuted: true
+        trailerTarget: "hero"
+        discoverLocation: "search"
+        trailerButton: true
+        trailerAutoplay: false
+        trailerDelay: 7
+        customPoster: ""
+        posterScreens: "home,continue_watching,library,search,details"
+        sizeBadges: true
+        addonLogo: true
+        badgePlace: "bottom"
+        fusionBadges: true
+        skipIntro: true
+        autoSkipIntro: false
+        autoSkipRecap: false
+        autoSkipOutro: false
+        autoSkipCredits: false
+        nextMode: "pct"
+        nextPct: 99
+        nextMin: 2
+        preloadNext: false
+        bingeFallback: true
+        stillWatching: true
+        stillCount: 3
+        postPlay: true
+        postPct: 96
+        parentalGuide: true
+        stripSdh: false
+        onlyPrefSubs: false
+        customSubs: true
+        subSize: "normal"
+        subColor: "white"
+        subBg: "none"
+        subEdge: "shadow"
+        subBold: false
+        subOffset: 0
+        playerStats: false
+    }
+end function
+
+function St_FilePaths(name as string) as object
+    return ["cachefs:/" + name + ".json", "tmp:/" + name + ".json"]
+end function
+
+function St_Fs() as dynamic
+    if m.stFsTried = true then return m.stFs
+    m.stFsTried = true
+    m.stFs = invalid
+    task = m.top = invalid
+    if not task then task = m.top.isSubtype("Task")
+    if task then m.stFs = CreateObject("roFileSystem")
+    return m.stFs
+end function
+
+function St_VerField(name as string) as string
+    for each prefix in ["reg_library_", "reg_progress_", "reg_libops_"]
+        if Left(name, Len(prefix)) = prefix then return "stVerBig"
+    end for
+    return "stVer"
+end function
+
+function St_Ver(field = "stVer" as string) as integer
+    if m.global = invalid or not m.global.hasField(field) then return -1
+    return m.global.getField(field)
+end function
+
+sub St_Bump(name = "" as string)
+    field = St_VerField(name)
+    if m.global = invalid or not m.global.hasField(field) then return
+    m.global.setField(field, m.global.getField(field) + 1)
+end sub
+
+function St_Memo(key as string) as dynamic
+    ver = St_Ver()
+    if ver < 0 or m.stMemo = invalid then return invalid
+    hit = m.stMemo[key]
+    if hit <> invalid and hit.ver = ver then return hit
+    return invalid
+end function
+
+sub St_MemoSet(key as string, value as dynamic)
+    ver = St_Ver()
+    if ver < 0 then return
+    if m.stMemo = invalid then m.stMemo = {}
+    m.stMemo[key] = { ver: ver, val: value }
+end sub
+
+function St_ReadFile(name as string) as dynamic
+    ver = St_Ver(St_VerField(name))
+    if ver >= 0
+        if m.stCache = invalid then m.stCache = {}
+        hit = m.stCache[name]
+        if hit <> invalid and hit.ver = ver then return hit.val
+    end if
+    fs = St_Fs()
+    found = invalid
+    for each path in St_FilePaths(name)
+        if found = invalid
+            text = ""
+            if fs = invalid
+                text = ReadAsciiFile(path)
+            else if fs.Exists(path)
+                text = ReadAsciiFile(path)
+            end if
+            if text <> "" then found = ParseJson(text)
+        end if
+    end for
+    if ver >= 0 then m.stCache[name] = { ver: ver, val: found }
+    return found
+end function
+
+sub St_WriteFile(name as string, value as dynamic)
+    text = FormatJson(value)
+    fs = St_Fs()
+    done = false
+    for each path in St_FilePaths(name)
+        if not done and WriteAsciiFile(path, text)
+            if ReadAsciiFile(path) = text
+                done = true
+            else if fs <> invalid and fs.Exists(path)
+                fs.Delete(path)
+            end if
+        else if fs <> invalid and fs.Exists(path)
+            fs.Delete(path)
+        end if
+    end for
+    St_Bump(name)
+end sub
+
+function St_SubDelayClamp(ms as integer) as integer
+    if ms > 180000 then return 180000
+    if ms < -180000 then return -180000
+    return ms
+end function
+
+function St_SubDelayMap() as object
+    raw = St_ReadFile("subdelay_" + St_ActiveProfile().id)
+    map = {}
+    if type(raw) = "roAssociativeArray" then map.Append(raw)
+    return map
+end function
+
+function St_SubDelay(videoId as string) as integer
+    vid = videoId.Trim()
+    if vid = "" then return 0
+    entry = St_SubDelayMap()[vid]
+    if type(entry) = "roAssociativeArray" then return St_SubDelayClamp(ToInt(entry.d, 0))
+    return 0
+end function
+
+sub St_SaveSubDelay(videoId as string, ms as integer)
+    vid = videoId.Trim()
+    if vid = "" then return
+    ms = St_SubDelayClamp(ms)
+    map = St_SubDelayMap()
+    if ms = 0
+        if not map.DoesExist(vid) then return
+        map.Delete(vid)
+    else
+        map[vid] = { d: ms, t: St_Now() }
+        while map.Count() > 150
+            oldest = ""
+            oldestAt = 2147483647
+            for each k in map
+                at = 0
+                if type(map[k]) = "roAssociativeArray" then at = ToInt(map[k].t, 0)
+                if at < oldestAt
+                    oldestAt = at
+                    oldest = k
+                end if
+            end for
+            if oldest = "" then exit while
+            map.Delete(oldest)
+        end while
+    end if
+    St_WriteFile("subdelay_" + St_ActiveProfile().id, map)
+end sub
+
+function St_LinksKey() as string
+    return "links_" + St_ActiveProfile().id
+end function
+
+function St_Links() as object
+    links = St_ReadFile(St_LinksKey())
+    if type(links) <> "roAssociativeArray" then links = {}
+    return links
+end function
+
+function St_Now() as integer
+    dt = CreateObject("roDateTime")
+    return dt.AsSeconds()
+end function
+
+sub St_SaveLink(key as string, entry as object)
+    links = St_Links()
+    entry.at = St_Now()
+    links[key] = entry
+    while links.Count() > 14
+        oldest = ""
+        oldestAt = 2147483647
+        for each k in links
+            at = ToInt(links[k].at, 0)
+            if at < oldestAt
+                oldestAt = at
+                oldest = k
+            end if
+        end for
+        if oldest = "" then exit while
+        links.Delete(oldest)
+    end while
+    St_WriteFile(St_LinksKey(), links)
+end sub
+
+function St_Link(key as string, maxAgeSeconds as integer) as dynamic
+    entry = St_Links()[key]
+    if type(entry) <> "roAssociativeArray" then return invalid
+    if maxAgeSeconds > 0 and St_Now() - ToInt(entry.at, 0) > maxAgeSeconds then return invalid
+    return entry
+end function
+
+sub St_SaveBadges(pid as string, rules as object)
+    St_WriteFile("badges_" + pid, rules)
+end sub
+
+function St_Badges(pid as string) as object
+    rules = St_ReadFile("badges_" + pid)
+    if type(rules) = "roArray" then return rules
+    return []
+end function
+
+sub St_ClearBadges(pid as string)
+    fs = St_Fs()
+    for each path in St_FilePaths("badges_" + pid)
+        if fs = invalid
+            WriteAsciiFile(path, "")
+        else
+            fs.Delete(path)
+        end if
+    end for
+    St_Bump()
+end sub
+
+function St_Pref(name as string) as dynamic
+    p = St_Prefs()
+    if p[name] <> invalid then return p[name]
+    return St_PlayerDefaults()[name]
+end function
+
+sub St_SetPref(name as string, value as dynamic)
+    p = St_Prefs()
+    p[name] = value
+    St_Touch(name)
+    St_SavePrefs(p)
+end sub
+
+sub St_SetProfileColor(pid as string, hex as string)
+    profiles = St_Profiles()
+    idx = St_ProfileIndex(profiles, pid)
+    if idx < 0 then return
+    profiles[idx].color = hex
+    St_Set("profiles", profiles)
+end sub
+
+sub Mask_Global()
+    mode = Str_Of(St_Settings()["corners"])
+    if mode = "" then mode = "auto"
+    m.global.corners = mode
+end sub
+
+function St_SearchHistory() as object
+    list = St_Get("searches_" + St_ActiveProfile().id, [])
+    if type(list) <> "roArray" then list = []
+    return list
+end function
+
+sub St_AddSearch(query as string)
+    q = query.Trim()
+    if Len(q) < 2 then return
+    out = [q]
+    for each s in St_SearchHistory()
+        if IsStr(s) and LCase(s) <> LCase(q) and out.Count() < 8 then out.Push(s)
+    end for
+    St_Set("searches_" + St_ActiveProfile().id, out)
+end sub
+
+sub St_RemoveSearch(query as string)
+    out = []
+    for each s in St_SearchHistory()
+        if IsStr(s) and s <> query then out.Push(s)
+    end for
+    St_Set("searches_" + St_ActiveProfile().id, out)
+end sub
+
+sub St_ClearSearches()
+    St_Set("searches_" + St_ActiveProfile().id, [])
+end sub
+
+function Track_CwSource(integ as object) as string
+    v = LCase(Str_Of(integ.cwSource))
+    if v = "trakt" and Str_Of(integ.traktToken) <> "" then return "trakt"
+    if v = "mdblist" and (Str_Of(integ.mdbAccess) <> "" or Str_Of(integ.mdbRefresh) <> "") then return "mdblist"
+    if v = "simkl" and Str_Of(integ.simklToken) <> "" then return "simkl"
+    return ""
+end function
+
+function Track_LibSource(integ as object) as string
+    v = LCase(Str_Of(integ.libSource))
+    if v = "trakt" and Str_Of(integ.traktToken) <> "" then return "trakt"
+    if v = "mdblist" and (Str_Of(integ.mdbAccess) <> "" or Str_Of(integ.mdbRefresh) <> "") then return "mdblist"
+    return ""
+end function
+
+function St_ProgressView() as object
+    local = St_Progress()
+    source = Track_CwSource(St_Integrations())
+    if source = "" then return local
+    pid = St_ActiveProfile().id
+    cache = St_ReadFile("tprogress_" + pid)
+    if type(cache) <> "roAssociativeArray" or Str_Of(cache.source) <> source or type(cache.items) <> "roArray" then return local
+    drops = St_ReadFile("tdrop_" + pid)
+    if type(drops) <> "roAssociativeArray" then drops = {}
+    at = ToInt(cache.at, 0)
+    out = []
+    seen = {}
+    for each e in local
+        if ToInt(e.updated, 0) > at and not seen.DoesExist(e.metaId)
+            seen[e.metaId] = true
+            out.Push(e)
+        end if
+    end for
+    for each e in cache.items
+        if type(e) = "roAssociativeArray" and IsStr(e.metaId) and IsStr(e.videoId) and not seen.DoesExist(e.metaId)
+            if not drops.DoesExist(e.metaId) or ToInt(drops[e.metaId], 0) < ToInt(e.updated, 0)
+                seen[e.metaId] = true
+                out.Push(e)
+            end if
+        end if
+    end for
+    return out
+end function
+
+sub Track_DropProgress(metaId as string)
+    source = Track_CwSource(St_Integrations())
+    if source = "" then return
+    pid = St_ActiveProfile().id
+    drops = St_ReadFile("tdrop_" + pid)
+    if type(drops) <> "roAssociativeArray" then drops = {}
+    drops[metaId] = St_Now()
+    St_WriteFile("tdrop_" + pid, drops)
+    cache = St_ReadFile("tprogress_" + pid)
+    if type(cache) <> "roAssociativeArray" or type(cache.items) <> "roArray" then return
+    for each e in cache.items
+        if type(e) = "roAssociativeArray" and Str_Of(e.metaId) = metaId and Str_Of(e.remoteId) <> ""
+            Track_QueueOp({ op: "dropProgress", source: source, id: metaId, remoteId: Str_Of(e.remoteId) })
+        end if
+    end for
+end sub
+
+sub Track_QueueOp(op as object)
+    pid = St_ActiveProfile().id
+    ops = St_ReadFile("tops_" + pid)
+    if type(ops) <> "roArray" then ops = []
+    ops.Push(op)
+    while ops.Count() > 100
+        ops.Shift()
+    end while
+    St_WriteFile("tops_" + pid, ops)
+    if m.progressSoon <> invalid
+        m.progressSoon.control = "stop"
+        m.progressSoon.control = "start"
+    end if
+end sub
+
+function Track_Watchlist() as object
+    cache = St_ReadFile("tlib_" + St_ActiveProfile().id)
+    if type(cache) = "roAssociativeArray" and type(cache.rows) = "roArray"
+        for each r in cache.rows
+            if type(r) = "roAssociativeArray" and Str_Of(r.key) = "watchlist" and type(r.items) = "roArray" then return r.items
+        end for
+    end if
+    return []
+end function
+
+function Track_InWatchlist(id as string) as boolean
+    for each e in Track_Watchlist()
+        if type(e) = "roAssociativeArray" and Str_Of(e.id) = id then return true
+    end for
+    return false
+end function
+
+function Track_ToggleWatchlist(source as string, entry as object) as boolean
+    pid = St_ActiveProfile().id
+    cache = St_ReadFile("tlib_" + pid)
+    if type(cache) <> "roAssociativeArray" or type(cache.rows) <> "roArray" then cache = { source: source, at: 0, rows: [] }
+    row = invalid
+    for each r in cache.rows
+        if type(r) = "roAssociativeArray" and Str_Of(r.key) = "watchlist" then row = r
+    end for
+    if row = invalid
+        row = { key: "watchlist", title: "Watchlist", items: [] }
+        if source = "trakt" then row.title = L("Watchlist de Trakt")
+        if source = "mdblist" then row.title = L("Watchlist de MDBList")
+        cache.rows.Unshift(row)
+    end if
+    if type(row.items) <> "roArray" then row.items = []
+    found = false
+    kept = []
+    for each e in row.items
+        if type(e) = "roAssociativeArray" and Str_Of(e.id) = entry.id then found = true else kept.Push(e)
+    end for
+    if not found then kept.Unshift({ id: entry.id, kind: Str_Of(entry.kind), name: Left(Str_Of(entry.name), 80), poster: Str_Of(entry.poster) })
+    row.items = kept
+    St_WriteFile("tlib_" + pid, cache)
+    op = "add"
+    if found then op = "remove"
+    Track_QueueOp({ op: op, source: source, id: entry.id, kind: Str_Of(entry.kind) })
+    return not found
+end function

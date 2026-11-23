@@ -1,0 +1,21 @@
+Nuvio TV para Roku — Build 87 (community source snapshot)
+
+Origem principal: Esmequiinn/NuvioTVSmart-Roku v0.1.8-IPTV,
+https://github.com/Esmequiinn/NuvioTVSmart-Roku
+Licença upstream: GNU GPL-3.0 (ver LICENSE).
+
+O código foi derivado e adaptado com alterações na interface de login por QR,
+na seleção de perfis e nos recursos visuais correspondentes.
+O aplicativo NÃO é o cliente Roku oficial do Nuvio.
+
+Referência de design adicional: iqui27/nuvio-native-legacy,
+https://github.com/iqui27/nuvio-native-legacy.
+
+Preparação do snapshot público: dois JPGs antigos sem referências no código
+foram omitidos; uma chave fixa de fallback do YouTube foi removida, preservando
+a busca dinâmica já existente. Estes ajustes podem afetar a disponibilidade
+de trailers em alguns ambientes.
+
+Código redistribuído sob as condições GPL-3.0. Respeite também os direitos
+separados sobre marcas, imagens e demais recursos de terceiros. Consulte
+THIRD_PARTY_NOTICES.md e docs/BUILD87-AUDITORIA.md.

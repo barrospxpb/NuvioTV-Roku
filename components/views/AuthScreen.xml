@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<component name="AuthScreen" extends="Group">
+  <interface>
+    <field id="mode" type="string" value="onboarding" onChange="render" />
+    <field id="qr" type="string" onChange="onQr" />
+    <field id="code" type="string" onChange="onCode" />
+    <field id="status" type="string" onChange="onStatus" />
+    <field id="hint" type="string" onChange="onHint" />
+    <field id="event" type="assocarray" alwaysNotify="true" />
+  </interface>
+  <script type="text/brightscript" uri="pkg:/components/Config.brs" />
+  <script type="text/brightscript" uri="pkg:/components/I18n.brs" />
+  <script type="text/brightscript" uri="pkg:/components/views/AuthScreen.brs" />
+  <script type="text/brightscript" uri="pkg:/source/bslib.brs" />
+  <children>
+    <Rectangle width="1920" height="1080" color="0x0B0C11FF" />
+    <Poster width="1920" height="1080" uri="pkg:/images/legacy_original_login_bg.jpg" loadDisplayMode="scaleToFill" opacity="0.17" />
+    <Poster translation="[68,40]" width="94" height="104" uri="pkg:/images/legacy_brand_symbol.png" loadDisplayMode="scaleToFit" />
+    <!-- Retained hidden nodes keep upstream AuthScreen interface compatible. -->
+    <Label id="leftTitle" visible="false" /><Label id="leftDesc" visible="false" /><Label id="leftHint" visible="false" />
+    <Group translation="[942,114]">
+      <Poster width="876" height="890" uri="pkg:/images/legacy_login_panel.png" loadDisplayMode="scaleToFill" />
+      <Label id="cardTitle" translation="[25,48]" width="826" height="62" horizAlign="center" font="font:LargeSystemFont" color="0xFFFFFFFF" />
+      <Label id="cardSub" translation="[40,118]" width="796" height="48" horizAlign="center" font="font:SmallSystemFont" color="0xB3B3B3FF" />
+      <Poster translation="[258,196]" width="360" height="360" uri="pkg:/images/legacy_login_qr_paper.png" />
+      <Poster id="qrImage" translation="[276,214]" width="324" height="324" loadWidth="420" loadHeight="420" loadDisplayMode="scaleToFit" />
+      <BusySpinner id="qrSpin" translation="[390,328]" visible="false" />
+      <Label id="codeText" translation="[20,558]" width="836" height="48" horizAlign="center" font="font:MediumBoldSystemFont" color="0xFFFFFFFF" />
+      <Label id="siteText" translation="[20,600]" width="836" height="30" horizAlign="center" font="font:SmallSystemFont" color="0xB3B3B3FF" />
+      <Poster translation="[36,626]" width="804" height="64" uri="pkg:/images/legacy_login_status.png" />
+      <Label id="statusText" translation="[36,626]" width="804" height="64" horizAlign="center" vertAlign="center" font="font:SmallSystemFont" color="0xB3B3B3FF" maxLines="1" />
+      <Label id="loginInfo" translation="[47,698]" width="780" height="38" horizAlign="center" font="font:SmallSystemFont" color="0xA6A6B0FF" text="Confirme o acesso no celular para continuar." />
+      <Label id="terms" translation="[30,751]" width="816" height="34" horizAlign="center" font="font:SmallSystemFont" color="0x999999FF" />
+      <Group id="buttons" translation="[0,800]" />
+    </Group>
+  </children>
+</component>

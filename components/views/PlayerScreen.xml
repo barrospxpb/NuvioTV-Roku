@@ -1,0 +1,157 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<component name="PlayerScreen" extends="Group">
+    <interface>
+        <field id="video" type="node" />
+        <field id="info" type="assocarray" onChange="onInfo" />
+        <field id="sources" type="array" />
+        <field id="sourceCards" type="array" />
+        <field id="sourceIndex" type="integer" />
+        <field id="accent" type="string" value="0x7C4DFFFF" />
+        <field id="active" type="boolean" onChange="onActive" />
+        <field id="event" type="assocarray" alwaysNotify="true" />
+        <field id="partyEnabled" type="boolean" value="false" />
+        <field id="partyText" type="string" onChange="onPartyText" />
+        <field id="logo" type="string" onChange="onLogo" />
+        <field id="metaPatch" type="assocarray" onChange="onMetaPatch" />
+        <field id="extraSubs" type="array" onChange="onExtraSubs" />
+        <field id="altAudio" type="boolean" value="false" />
+        <field id="tsAudio" type="assocarray" />
+        <field id="knownDuration" type="integer" value="0" />
+        <field id="segments" type="array" onChange="Ex_OnSegments" />
+        <field id="parental" type="array" onChange="Ex_OnParental" />
+        <field id="recs" type="array" />
+        <field id="nextInfo" type="assocarray" />
+        <field id="stillWatching" type="boolean" alwaysNotify="true" onChange="Ex_OnStill" />
+        <field id="postActive" type="boolean" value="false" />
+        <field id="episodes" type="assocarray" onChange="EpP_Open" />
+        <field id="loadStatus" type="string" alwaysNotify="true" onChange="onLoadStatus" />
+        <field id="loadNote" type="string" alwaysNotify="true" onChange="onLoadNote" />
+        <field id="loadDetails" type="boolean" value="true" onChange="paintLoadText" />
+        <field id="resumeOverride" type="assocarray" onChange="onResumeOverride" />
+    </interface>
+    <script type="text/brightscript" uri="pkg:/components/Mask.brs" />
+    <script type="text/brightscript" uri="pkg:/components/Config.brs" />
+    <script type="text/brightscript" uri="pkg:/components/I18n.brs" />
+    <script type="text/brightscript" uri="pkg:/components/Util.brs" />
+    <script type="text/brightscript" uri="pkg:/components/Ink.brs" />
+    <script type="text/brightscript" uri="pkg:/components/views/PlayerScreen.brs" />
+    <script type="text/brightscript" uri="pkg:/components/views/PlayerExtras.brs" />
+    <script type="text/brightscript" uri="pkg:/source/bslib.brs" />
+    <children>
+        <Rectangle width="1920" height="1080" color="0x000000FF" />
+        <Poster id="postBg" visible="false" width="1920" height="1080" loadWidth="1280" loadHeight="720" loadDisplayMode="scaleToZoom" />
+        <Video id="video" width="1920" height="1080" enableUI="false" enableTrickPlay="false" focusable="false" />
+        <Group id="loadScreen" visible="false">
+            <Rectangle width="1920" height="1080" color="0x0B0B0FFF" />
+            <Poster id="loadBg" width="1920" height="1080" loadWidth="1280" loadHeight="720" loadDisplayMode="scaleToZoom" opacity="0.4" />
+            <Poster width="1920" height="1080" uri="pkg:/images/player_bottom.png" loadDisplayMode="scaleToFill" opacity="0.6" />
+            <Poster id="loadLogo" translation="[560,330]" width="800" height="260" loadDisplayMode="scaleToFit" loadWidth="620" loadHeight="200" />
+            <Label id="loadTitle" translation="[160,380]" width="1600" height="160" horizAlign="center" vertAlign="center" wrap="true" maxLines="2" font="font:LargeBoldSystemFont" color="0xFFFFFFFF" />
+            <BusySpinner id="loadSpin" translation="[932,660]" spinInterval="0.9" />
+            <Label id="loadPct" translation="[160,740]" width="1600" horizAlign="center" wrap="true" maxLines="4" font="font:SmallSystemFont" color="0xD0D0D8FF" />
+        </Group>
+        <Timer id="bufTimer" repeat="false" duration="1.2" />
+        <Timer id="holdTimer" repeat="false" duration="1.5" />
+        <Group id="subLayer" visible="false">
+            <Poster id="subBg" uri="pkg:/images/card.9.png" blendColor="0x000000A0" />
+            <Label id="subShadow" width="1600" horizAlign="center" vertAlign="bottom" wrap="true" maxLines="4" color="0x000000FF" />
+            <Label id="subText" width="1600" horizAlign="center" vertAlign="bottom" wrap="true" maxLines="4" color="0xFFFFFFFF" />
+        </Group>
+        <Label id="buffering" visible="false" translation="[0,500]" width="1920" horizAlign="center" font="font:MediumBoldSystemFont" color="0xFFFFFFFF" text="Cargando..." />
+        <Group id="pauseScreen" visible="false">
+            <Poster id="pauseBg" visible="false" width="1920" height="1080" loadWidth="1280" loadHeight="720" loadDisplayMode="scaleToZoom" opacity="0" />
+            <Poster translation="[0,380]" width="1920" height="700" uri="pkg:/images/player_bottom.png" loadDisplayMode="scaleToFill" />
+            <Poster width="1400" height="1080" uri="pkg:/images/grad_left.png" loadDisplayMode="scaleToFill" blendColor="0x000000FF" opacity="0.55" />
+            <Label id="pauseLabel" translation="[120,600]" font="font:SmallSystemFont" color="0xB4B4C0FF" text="Estás viendo" />
+            <Poster id="pauseLogo" translation="[120,640]" width="620" height="150" loadDisplayMode="scaleToFit" loadWidth="620" loadHeight="200" />
+            <Label id="pauseTitle" translation="[120,650]" width="1300" height="140" vertAlign="bottom" wrap="true" maxLines="2" font="font:LargeBoldSystemFont" color="0xFFFFFFFF" />
+            <Label id="pauseMeta" translation="[120,812]" width="1400" font="font:MediumSystemFont" color="0xD4D4DCFF" />
+            <Label id="pauseDesc" translation="[120,862]" width="1100" height="100" wrap="true" maxLines="2" font="font:SmallSystemFont" color="0xC4C4CEFF" />
+            <Label id="pauseHint" translation="[120,980]" font="font:SmallestSystemFont" color="0x9A9AAAFF" text="Presiona OK para continuar" />
+            <Group id="pauseBadges" />
+        </Group>
+        <Group id="controls" visible="false">
+            <Poster width="1920" height="220" uri="pkg:/images/player_top.png" loadDisplayMode="scaleToFill" />
+            <Label id="clock" translation="[1100,56]" width="700" horizAlign="right" font="font:MediumBoldSystemFont" color="0xFFFFFFFF" />
+            <Label id="partyLabel" visible="false" translation="[120,64]" width="900" font="font:SmallBoldSystemFont" color="0xFFFFFFFF" />
+            <Label id="ends" translation="[1100,100]" width="700" horizAlign="right" font="font:SmallestSystemFont" color="0xC4C4CEFF" />
+            <Poster translation="[0,520]" width="1920" height="560" uri="pkg:/images/player_bottom.png" loadDisplayMode="scaleToFill" />
+            <Poster id="logo" translation="[120,700]" width="460" height="120" loadDisplayMode="scaleToFit" loadWidth="620" loadHeight="200" />
+            <Label id="title" translation="[120,740]" width="1400" height="80" vertAlign="bottom" font="font:LargeBoldSystemFont" color="0xFFFFFFFF" />
+            <Label id="meta" translation="[120,836]" width="1400" font="font:SmallSystemFont" color="0xC4C4CEFF" />
+            <Group id="playBadges" />
+            <Rectangle id="track" translation="[120,890]" width="1680" height="6" color="0xFFFFFF44" />
+            <Rectangle id="fill" translation="[120,890]" width="0" height="6" color="0x7C4DFFFF" />
+            <Poster id="knob" translation="[110,883]" width="20" height="20" uri="pkg:/images/c/d20.png" visible="false" />
+            <Label id="time" translation="[1300,916]" width="500" horizAlign="right" font="font:SmallSystemFont" color="0xFFFFFFFF" />
+            <Group id="buttons" translation="[120,920]" />
+            <Label id="hint" translation="[120,1010]" width="900" font="font:SmallestSystemFont" color="0xC4C4CEFF" />
+        </Group>
+        <Group id="parentalBox" visible="false" translation="[120,110]">
+            <Rectangle id="parentalBar" width="4" height="10" color="0x7C4DFFFF" />
+            <Group id="parentalRows" translation="[20,0]" />
+        </Group>
+        <Group id="skipBtn" visible="false">
+            <Group id="skipBg" />
+            <Poster id="skipIcon" translation="[24,16]" width="32" height="32" uri="pkg:/images/s/ic_next_32.png" />
+            <Label id="skipLabel" translation="[68,0]" height="64" vertAlign="center" font="font:SmallBoldSystemFont" color="0xFFFFFFFF" />
+        </Group>
+        <Group id="nextCard" visible="false" translation="[1180,640]">
+            <Poster id="nextBg" width="620" height="300" uri="pkg:/images/card.9.png" blendColor="0x161616EB" />
+            <MaskGroup id="nextMask" translation="[24,24]" maskUri="pkg:/images/mask_landscape.png" maskSize="[256,144]">
+                <Rectangle width="256" height="144" color="0x262626FF" />
+                <Poster id="nextThumb" width="256" height="144" loadWidth="256" loadHeight="144" loadDisplayMode="scaleToZoom" />
+            </MaskGroup>
+            <Label id="nextKicker" translation="[300,26]" width="296" font="font:SmallestSystemFont" color="0xB4B4C0FF" />
+            <Label id="nextCode" translation="[300,62]" width="296" font="font:SmallBoldSystemFont" color="0xFFFFFFFF" />
+            <Label id="nextTitle" translation="[300,100]" width="296" height="70" wrap="true" maxLines="2" font="font:SmallestSystemFont" color="0xD4D4DCFF" />
+            <Group id="nextPlayBg" translation="[24,196]" />
+            <Poster id="nextPlayIcon" translation="[48,212]" width="32" height="32" uri="pkg:/images/s/ic_play_32.png" blendColor="0x0C0C0FFF" />
+            <Label id="nextPlayLabel" translation="[90,196]" width="150" height="64" vertAlign="center" font="font:SmallBoldSystemFont" color="0x0C0C0FFF" />
+            <Label id="nextCount" translation="[264,196]" width="340" height="64" vertAlign="center" font="font:SmallestSystemFont" color="0xC4C4CEFF" />
+        </Group>
+        <Group id="statsBox" visible="false" translation="[1340,160]">
+            <Poster id="statsBg" uri="pkg:/images/card.9.png" blendColor="0x000000B8" />
+            <Label id="statsText" translation="[24,18]" font="font:SmallestSystemFont" color="0xE8E8EEFF" />
+        </Group>
+        <Group id="postBox" visible="false">
+            <Poster width="1400" height="1080" uri="pkg:/images/grad_left.png" loadDisplayMode="scaleToFill" blendColor="0x000000FF" />
+            <Poster translation="[0,480]" width="1920" height="600" uri="pkg:/images/player_bottom.png" loadDisplayMode="scaleToFill" />
+            <Poster id="postWinRing" translation="[1196,52]" width="632" height="380" uri="pkg:/images/iring.9.png" visible="false" />
+            <Label id="postWinHint" translation="[1208,444]" width="608" horizAlign="center" font="font:SmallestSystemFont" color="0xD0D0D8FF" visible="false" />
+            <Label id="postHeading" translation="[120,440]" width="1000" font="font:SmallBoldSystemFont" color="0xD0D0D8FF" />
+            <Poster id="postLogo" translation="[120,490]" width="620" height="170" loadWidth="620" loadHeight="170" loadDisplayMode="scaleToFit" />
+            <Label id="postTitle" translation="[120,490]" width="1000" height="170" vertAlign="bottom" wrap="true" maxLines="2" font="font:LargeBoldSystemFont" color="0xFFFFFFFF" />
+            <Label id="postMeta" translation="[120,684]" width="1000" font="font:SmallSystemFont" color="0xE0E0E8FF" />
+            <Label id="postDesc" translation="[120,732]" width="940" height="130" wrap="true" maxLines="3" font="font:SmallSystemFont" color="0xC8C8D0FF" />
+            <Group id="postRow" translation="[120,890]" />
+            <Rectangle id="postTrack" translation="[120,990]" width="560" height="4" color="0xFFFFFF33" />
+            <Rectangle id="postFill" translation="[120,990]" width="0" height="4" />
+            <Label id="postCount" translation="[700,976]" width="300" font="font:SmallestSystemFont" color="0xB4B4C0FF" />
+            <Label id="postHint" translation="[120,1010]" width="1400" font="font:SmallestSystemFont" color="0x9A9AAAFF" />
+        </Group>
+        <Timer id="postTimer" repeat="true" duration="0.25" />
+        <Group id="epPanel" visible="false" />
+        <Group id="stillBox" visible="false">
+            <Rectangle width="1920" height="1080" color="0x000000FF" />
+            <Poster id="stillBg" width="1920" height="1080" loadWidth="1280" loadHeight="720" loadDisplayMode="scaleToZoom" opacity="0.45" />
+            <Poster width="1920" height="1080" uri="pkg:/images/player_bottom.png" loadDisplayMode="scaleToFill" />
+            <Poster id="stillLogo" translation="[120,380]" width="620" height="150" loadDisplayMode="scaleToFit" loadWidth="620" loadHeight="200" />
+            <Label id="stillShow" translation="[120,420]" width="1300" height="110" vertAlign="bottom" wrap="true" maxLines="2" font="font:LargeBoldSystemFont" color="0xFFFFFFFF" />
+            <Label id="stillHeading" translation="[120,560]" width="1400" font="font:LargeBoldSystemFont" color="0xFFFFFFFF" />
+            <Label id="stillSub" translation="[120,650]" width="1400" font="font:MediumSystemFont" color="0xD4D4DCFF" />
+            <Group id="stillButtons" translation="[120,740]" />
+            <Label id="stillCount" translation="[120,850]" font="font:SmallSystemFont" color="0xB4B4C0FF" />
+        </Group>
+        <Group id="subSyncBox" visible="false" translation="[200,56]">
+            <Poster id="subSyncBg" width="1520" height="224" uri="pkg:/images/card.9.png" blendColor="0x121216ED" />
+            <Poster id="subSyncRing" width="1520" height="224" uri="pkg:/images/iring.9.png" blendColor="0x2E2E36FF" />
+            <Label id="subSyncTitle" translation="[40,22]" width="720" font="font:MediumBoldSystemFont" color="0xFFFFFFFF" />
+            <Label id="subSyncValue" translation="[760,22]" width="720" horizAlign="right" font="font:MediumBoldSystemFont" color="0x7C4DFFFF" />
+            <Label id="subSyncNote" translation="[40,68]" width="1440" font="font:SmallestSystemFont" color="0xB8B8C4FF" />
+            <Group id="subSyncBtns" translation="[40,122]" />
+        </Group>
+        <Timer id="subSyncTimer" repeat="false" duration="20.0" />
+        <ActionSheet id="panel" visible="false" />
+    </children>
+</component>

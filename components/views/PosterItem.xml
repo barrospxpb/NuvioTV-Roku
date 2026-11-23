@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<component name="PosterItem" extends="Group">
+    <interface>
+        <field id="itemContent" type="node" onChange="onContent" />
+        <field id="width" type="float" onChange="onSize" />
+        <field id="height" type="float" onChange="onSize" />
+        <field id="itemHasFocus" type="boolean" onChange="onItemFocus" />
+        <field id="focusPercent" type="float" onChange="onItemFocus" />
+        <field id="rowHasFocus" type="boolean" onChange="onItemFocus" />
+        <field id="rowListHasFocus" type="boolean" onChange="onItemFocus" />
+    </interface>
+    <script type="text/brightscript" uri="pkg:/components/Mask.brs" />
+    <script type="text/brightscript" uri="pkg:/components/Config.brs" />
+    <script type="text/brightscript" uri="pkg:/components/I18n.brs" />
+    <script type="text/brightscript" uri="pkg:/components/views/PosterItem.brs" />
+    <script type="text/brightscript" uri="pkg:/source/bslib.brs" />
+    <children>
+        <Group id="body">
+            <Poster id="frame" width="200" height="300" uri="pkg:/images/card.9.png" blendColor="0x1E1E26FF" />
+            <Label id="name" translation="[14,14]" width="172" height="272" wrap="true" maxLines="5" horizAlign="center" vertAlign="center" font="font:SmallestSystemFont" color="0xC9C9D6FF" />
+            <MaskGroup id="mask" maskUri="pkg:/images/mask_poster.png" maskSize="[200,300]">
+                <Poster id="art" width="200" height="300" loadWidth="200" loadHeight="300" loadDisplayMode="scaleToZoom" />
+                <Poster id="shade" visible="false" uri="pkg:/images/cw_shade.png" loadDisplayMode="scaleToFill" />
+            </MaskGroup>
+            <Group id="capsHolder" />
+            <Group id="cw" visible="false">
+                <Poster id="badgeBg" uri="pkg:/images/badge.9.png" blendColor="0x131313E0" />
+                <Label id="badge" horizAlign="center" vertAlign="center" font="font:SmallestSystemFont" color="0xFFFFFFF0" />
+                <Label id="kicker" font="font:SmallestSystemFont" color="0xFFFFFFE0" />
+                <Label id="cardTitle" font="font:SmallBoldSystemFont" color="0xFFFFFFFF" />
+                <Label id="cardSub" font="font:SmallestSystemFont" color="0xFFFFFFB8" />
+            </Group>
+            <Rectangle id="track" visible="false" translation="[12,282]" width="176" height="6" color="0x0000004D" />
+            <Rectangle id="bar" visible="false" translation="[12,282]" width="0" height="6" color="0x7C4DFFFF" />
+            <Group id="watched" visible="false">
+                <Poster id="watchedDot" width="34" height="34" uri="pkg:/images/c/d34.png" />
+                <Poster id="watchedIcon" translation="[5,5]" width="24" height="24" uri="pkg:/images/s/ic_check_s_24.png" blendColor="0x0D0D0DFF" />
+            </Group>
+            <Poster id="ring" visible="false" translation="[0,0]" width="200" height="300" uri="pkg:/images/iring.9.png" blendColor="0xFFFFFFFF" />
+        </Group>
+    </children>
+</component>
