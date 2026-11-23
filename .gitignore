@@ -1,0 +1,28 @@
+# Pacotes e arquivos produzidos localmente
+dist/
+build/
+*.zip
+*.wgt
+*.tpk
+*.apk
+*.log
+__pycache__/
+*.pyc
+
+# Segredos e credenciais locais
+*.key
+*.pem
+*.p12
+*.pfx
+*.jks
+.env
+.env.*
+secrets.json
+credentials.json
+private-config.*
+
+# IDE e sistema
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
